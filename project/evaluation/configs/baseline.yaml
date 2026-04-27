@@ -1,0 +1,17 @@
+run_label: baseline
+dataset_version: eval_v1
+collection: document_child_chunks
+retrieval:
+  mode: hybrid
+  top_k: 10
+  reranker: null
+chunking:
+  child_chunk_size: 500
+  child_chunk_overlap: 100
+  min_parent_size: 2000
+  max_parent_size: 4000
+models:
+  dense_model: sentence-transformers/all-mpnet-base-v2
+  sparse_model: Qdrant/bm25
+  llm_model: qwen3:4b-instruct-2507-q4_K_M
+

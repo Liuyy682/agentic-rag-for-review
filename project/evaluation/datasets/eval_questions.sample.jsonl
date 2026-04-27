@@ -1,0 +1,2 @@
+{"question_id":"q_0001","question":"文档中 X 方法的主要限制是什么？","reference_answer":"X 方法的主要限制包括示例限制。请替换为真实标准答案。","source_file":"example.pdf","gold_parent_ids":["example_parent_0"],"gold_child_ids":[],"gold_evidence_text":["请替换为真实证据片段。"],"question_type":"single-hop","difficulty":"medium","tags":["example"]}
+
