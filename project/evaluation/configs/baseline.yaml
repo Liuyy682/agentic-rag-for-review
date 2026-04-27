@@ -13,5 +13,5 @@ chunking:
 models:
   dense_model: sentence-transformers/all-mpnet-base-v2
   sparse_model: Qdrant/bm25
-  llm_model: qwen3:4b-instruct-2507-q4_K_M
+  llm_model: gpt-4o
 

@@ -12,6 +12,7 @@ import config
 from core.rag_system import RAGSystem
 from evaluation.data import load_eval_questions
 from evaluation.io import config_snapshot, make_run_id, write_jsonl, write_metrics_csv
+from evaluation.metrics.ragas_metrics import build_ragas_error_cases, run_ragas_metrics
 from evaluation.reports import write_ragas_report
 from evaluation.runners.retrieval_eval_runner import retrieve_chunks
 from langchain_core.messages import AIMessage, HumanMessage
@@ -102,77 +103,6 @@ def invoke_rag_answer(rag_system: RAGSystem, question: str) -> str:
         if isinstance(message, AIMessage) and message.content:
             return str(message.content)
     return ""
-
-
-def run_ragas_metrics(outputs: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], Dict[str, float]]:
-    try:
-        from datasets import Dataset
-        from ragas import evaluate
-        from ragas.metrics import context_precision, context_recall, faithfulness, response_relevancy
-    except ImportError as exc:
-        raise RuntimeError(
-            "RAGAS evaluation requires optional dependencies. Install `ragas` and `datasets`, "
-            "or rerun with `--skip-ragas` to only save RAG outputs."
-        ) from exc
-
-    dataset = Dataset.from_list(
-        [
-            {
-                "user_input": row["user_input"],
-                "response": row["response"],
-                "retrieved_contexts": row["retrieved_contexts"],
-                "reference": row["reference"],
-            }
-            for row in outputs
-        ]
-    )
-    result = evaluate(
-        dataset,
-        metrics=[faithfulness, response_relevancy, context_precision, context_recall],
-    )
-    rows = result.to_pandas().to_dict(orient="records")
-    metrics: Dict[str, float] = {}
-    for key, value in result.items():
-        try:
-            metrics[key] = float(value)
-        except (TypeError, ValueError):
-            continue
-
-    merged = []
-    for source, score_row in zip(outputs, rows):
-        merged_row = dict(source)
-        merged_row.update(score_row)
-        merged.append(merged_row)
-    return merged, metrics
-
-
-def build_ragas_error_cases(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    cases = []
-    thresholds = {
-        "faithfulness": 0.75,
-        "answer_relevancy": 0.75,
-        "response_relevancy": 0.75,
-        "context_precision": 0.65,
-        "context_recall": 0.70,
-    }
-    for row in rows:
-        low = [metric for metric, threshold in thresholds.items() if row.get(metric) is not None and row.get(metric) < threshold]
-        if not low:
-            continue
-        failure_type = "hallucination" if "faithfulness" in low else "low_answer_quality"
-        if "context_recall" in low:
-            failure_type = "insufficient_context"
-        cases.append(
-            {
-                "question_id": row["question_id"],
-                "question": row["question"],
-                "answer": row["answer"],
-                "failure_type": failure_type,
-                "low_metrics": low,
-                "retrieved_contexts": row["retrieved_contexts"],
-            }
-        )
-    return cases
 
 
 def main() -> None:

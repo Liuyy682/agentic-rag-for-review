@@ -95,6 +95,70 @@ python project/evaluation/runners/compare_runs.py \
   --output project/evaluation/reports/compare_report.md
 ```
 
+## RAGBench
+
+RAGBench 数据集在 Hugging Face 上以 Parquet 发布。本项目通过 Hugging Face Dataset Server 的 HTTP rows API 拉取数据，因此不强制安装 `datasets/pandas/pyarrow`。
+
+只导入 RAGBench 样本并转换为本项目 JSONL：
+
+```bash
+python project/evaluation/runners/ragbench_importer.py \
+  --subset covidqa \
+  --split test \
+  --limit 20
+```
+
+输出：
+
+```text
+project/evaluation/datasets/ragbench_eval_questions.jsonl
+project/evaluation/datasets/ragbench_contexts.jsonl
+```
+
+自动生成 RAGBench 官方标注汇总报告：
+
+```bash
+python project/evaluation/runners/ragbench_eval_runner.py \
+  --subset covidqa \
+  --split test \
+  --limit 20
+```
+
+用当前 RAGAS 版本重新评测 RAGBench 自带回答：
+
+```bash
+python project/evaluation/runners/ragbench_eval_runner.py \
+  --subset covidqa \
+  --split test \
+  --limit 20 \
+  --ragas
+```
+
+如果本地 Ollama 模型可用，也可以用 RAGBench 自带 documents 作为上下文生成答案，并输出 token F1 和失败样本：
+
+```bash
+python project/evaluation/runners/ragbench_eval_runner.py \
+  --subset covidqa \
+  --split test \
+  --limit 20 \
+  --generate
+```
+
+对本地模型生成答案重新跑 RAGAS：
+
+```bash
+python project/evaluation/runners/ragbench_eval_runner.py \
+  --subset covidqa \
+  --split test \
+  --limit 20 \
+  --generate \
+  --ragas
+```
+
+`--ragas` 需要安装可选依赖 `ragas` 和 `datasets`，并配置 RAGAS judge 所需的 LLM/API 环境。RAGAS 输入字段使用官方 single-turn schema：`user_input`、`retrieved_contexts`、`response`、`reference`。
+
+注意：RAGBench 每条样本自带候选 documents，并不是当前项目已入库的 PDF 语料。默认 RAGBench runner 不会污染现有 Qdrant collection；如果要测试 retriever，需要先将 `ragbench_contexts.jsonl` 建成单独评测索引。
+
 ## Notes
 
 - 评测模块只调用主系统已有接口，不修改主 RAG pipeline。
