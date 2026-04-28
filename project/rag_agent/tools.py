@@ -1,12 +1,32 @@
 from typing import List
 from langchain_core.tools import tool
+import config
 from db.parent_store_manager import ParentStoreManager
 
 class ToolFactory:
     
-    def __init__(self, collection):
+    def __init__(self, collection, vector_db=None, collection_name=None):
         self.collection = collection
+        self.vector_db = vector_db
+        self.collection_name = collection_name
         self.parent_store_manager = ParentStoreManager()
+
+    def _format_child_chunk_results(self, results) -> str:
+        formatted_results = []
+        for doc in results:
+            parts = [
+                f"Parent ID: {doc.metadata.get('parent_id', '')}",
+                f"File Name: {doc.metadata.get('source', '')}",
+            ]
+            if config.RETRIEVAL_DEBUG:
+                if "rrf_score" in doc.metadata:
+                    parts.append(f"RRF Score: {doc.metadata.get('rrf_score'):.6f}")
+                if "rrf_rank_details" in doc.metadata:
+                    parts.append(f"RRF Rank Details: {doc.metadata.get('rrf_rank_details')}")
+            parts.append(f"Content: {doc.page_content.strip()}")
+            formatted_results.append("\n".join(parts))
+
+        return "\n\n".join(formatted_results)
     
     def _search_child_chunks(self, query: str, limit: int) -> str:
         """Search for the top K most relevant child chunks.
@@ -16,16 +36,37 @@ class ToolFactory:
             limit: Maximum number of results to return
         """
         try:
-            results = self.collection.similarity_search(query, k=limit, score_threshold=0.7)
+            limit = limit or config.RRF_TOP_K
+            mode = config.RETRIEVAL_FUSION_MODE
+
+            if mode == "rrf":
+                if not self.vector_db or not self.collection_name:
+                    raise ValueError("RRF retrieval requires vector_db and collection_name")
+                results = self.vector_db.rrf_search(
+                    collection_name=self.collection_name,
+                    query=query,
+                    dense_k=config.DENSE_TOP_K,
+                    sparse_k=config.SPARSE_TOP_K,
+                    fused_k=limit,
+                    rrf_k=config.RRF_K,
+                )
+            elif mode == "dense":
+                if not self.vector_db or not self.collection_name:
+                    raise ValueError("Dense retrieval requires vector_db and collection_name")
+                results = self.vector_db.dense_search(self.collection_name, query, k=limit)
+            elif mode == "sparse":
+                if not self.vector_db or not self.collection_name:
+                    raise ValueError("Sparse retrieval requires vector_db and collection_name")
+                results = self.vector_db.sparse_search(self.collection_name, query, k=limit)
+            elif mode == "qdrant_hybrid":
+                results = self.collection.similarity_search(query, k=limit, score_threshold=0.7)
+            else:
+                raise ValueError(f"Unsupported retrieval fusion mode: {mode}")
+
             if not results:
                 return "NO_RELEVANT_CHUNKS"
 
-            return "\n\n".join([
-                f"Parent ID: {doc.metadata.get('parent_id', '')}\n"
-                f"File Name: {doc.metadata.get('source', '')}\n"
-                f"Content: {doc.page_content.strip()}"
-                for doc in results
-            ])            
+            return self._format_child_chunk_results(results)
 
         except Exception as e:
             return f"RETRIEVAL_ERROR: {str(e)}"

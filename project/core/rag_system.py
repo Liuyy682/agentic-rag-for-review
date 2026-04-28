@@ -25,7 +25,11 @@ class RAGSystem:
         collection = self.vector_db.get_collection(self.collection_name)
 
         llm = ChatOllama(model=config.LLM_MODEL, temperature=config.LLM_TEMPERATURE)
-        tools = ToolFactory(collection).create_tools()
+        tools = ToolFactory(
+            collection,
+            vector_db=self.vector_db,
+            collection_name=self.collection_name,
+        ).create_tools()
         self.agent_graph = create_agent_graph(llm, tools)
 
     def get_config(self):

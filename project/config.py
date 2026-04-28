@@ -11,6 +11,15 @@ QDRANT_DB_PATH = os.path.join(_BASE_DIR, "qdrant_db")
 CHILD_COLLECTION = "document_child_chunks"
 SPARSE_VECTOR_NAME = "sparse"
 
+# --- Retrieval Fusion Configuration ---
+RETRIEVAL_FUSION_MODE = "rrf"
+# Options: "qdrant_hybrid", "rrf", "dense", "sparse"
+DENSE_TOP_K = 20
+SPARSE_TOP_K = 20
+RRF_TOP_K = 8
+RRF_K = 60
+RETRIEVAL_DEBUG = False
+
 # --- Model Configuration ---
 DENSE_MODEL = "sentence-transformers/all-mpnet-base-v2"
 SPARSE_MODEL = "Qdrant/bm25"
