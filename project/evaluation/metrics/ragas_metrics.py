@@ -1,18 +1,24 @@
 import os
+import math
 from typing import Any, Dict, List
 
 import config
 
 
-def run_ragas_metrics(outputs: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], Dict[str, float]]:
+def run_ragas_metrics(
+    outputs: List[Dict[str, Any]],
+    timeout: int = 180,
+    max_retries: int = 2,
+    max_workers: int = 2,
+    batch_size: int | None = 1,
+) -> tuple[List[Dict[str, Any]], Dict[str, float]]:
     try:
         from datasets import Dataset
         from ragas import evaluate
-        from ragas.embeddings import LangchainEmbeddingsWrapper
         from ragas.llms import llm_factory
-        from ragas.metrics.collections import AnswerRelevancy, ContextPrecision, ContextRecall, Faithfulness
-        from langchain_huggingface import HuggingFaceEmbeddings
-        from openai import OpenAI
+        from ragas.metrics import _AnswerRelevancy, _ContextPrecision, _ContextRecall, _Faithfulness
+        from ragas.run_config import RunConfig
+        from openai import APIStatusError, OpenAI
     except ImportError as exc:
         raise RuntimeError(
             "RAGAS evaluation requires optional dependencies. Install `ragas` and `datasets`, "
@@ -36,34 +42,84 @@ def run_ragas_metrics(outputs: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any
             for row in outputs
         ]
     )
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    llm = llm_factory(os.environ.get("RAGAS_LLM_MODEL", "gpt-4o-mini"), client=client)
-    embeddings = LangchainEmbeddingsWrapper(HuggingFaceEmbeddings(model_name=config.DENSE_MODEL))
-    metrics = [
-        Faithfulness(llm=llm),
-        AnswerRelevancy(llm=llm, embeddings=embeddings),
-        ContextPrecision(llm=llm),
-        ContextRecall(llm=llm),
-    ]
-
-    result = evaluate(
-        dataset,
-        metrics=metrics,
+    client = OpenAI(
+        api_key=os.environ["OPENAI_API_KEY"],
+        base_url=os.environ.get("OPENAI_BASE_URL") or None,
     )
+    llm = llm_factory(os.environ.get("RAGAS_LLM_MODEL", "gpt-4o-mini"), client=client)
+    metrics = [
+        _Faithfulness(llm=llm),
+        _ContextPrecision(llm=llm),
+        _ContextRecall(llm=llm),
+    ]
+    if os.environ.get("RAGAS_ENABLE_ANSWER_RELEVANCY", "false").lower() == "true":
+        from ragas.embeddings import LangchainEmbeddingsWrapper
+        from langchain_openai import OpenAIEmbeddings
+
+        embeddings = LangchainEmbeddingsWrapper(
+            OpenAIEmbeddings(
+                model=os.environ.get("RAGAS_EMBEDDING_MODEL", "text-embedding-3-small"),
+                api_key=os.environ["OPENAI_API_KEY"],
+                base_url=os.environ.get("OPENAI_BASE_URL") or None,
+            )
+        )
+        metrics.append(_AnswerRelevancy(llm=llm, embeddings=embeddings))
+
+    try:
+        result = evaluate(
+            dataset,
+            metrics=metrics,
+            raise_exceptions=True,
+            run_config=RunConfig(timeout=timeout, max_retries=max_retries, max_workers=max_workers),
+            batch_size=batch_size,
+        )
+    except APIStatusError as exc:
+        base_url = os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+        raise RuntimeError(
+            f"RAGAS judge request failed with HTTP {exc.status_code}. "
+            f"Check OPENAI_API_KEY, OPENAI_BASE_URL ({base_url}), "
+            f"RAGAS_LLM_MODEL, and RAGAS_EMBEDDING_MODEL."
+        ) from exc
     rows = result.to_pandas().to_dict(orient="records")
-    metrics: Dict[str, float] = {}
-    for key, value in result.items():
-        try:
-            metrics[key] = float(value)
-        except (TypeError, ValueError):
-            continue
+    metrics_summary = summarize_ragas_rows(rows)
 
     merged = []
     for source, score_row in zip(outputs, rows):
         merged_row = dict(source)
         merged_row.update(score_row)
         merged.append(merged_row)
-    return merged, metrics
+    return merged, metrics_summary
+
+
+def summarize_ragas_rows(rows: List[Dict[str, Any]]) -> Dict[str, float]:
+    metric_keys = [
+        "faithfulness",
+        "answer_relevancy",
+        "response_relevancy",
+        "context_precision",
+        "llm_context_precision_with_reference",
+        "context_recall",
+    ]
+    summary: Dict[str, float] = {"rows": float(len(rows))}
+    for key in metric_keys:
+        values = [_to_float(row.get(key)) for row in rows]
+        values = [value for value in values if value is not None]
+        if values:
+            output_key = "context_precision" if key == "llm_context_precision_with_reference" else key
+            summary[output_key] = sum(values) / len(values)
+    return summary
+
+
+def _to_float(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        number = float(value)
+        if math.isnan(number):
+            return None
+        return number
+    except (TypeError, ValueError):
+        return None
 
 
 def build_ragas_error_cases(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

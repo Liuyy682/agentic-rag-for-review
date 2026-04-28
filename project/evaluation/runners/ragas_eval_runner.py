@@ -27,6 +27,10 @@ def run_ragas_eval(
     dataset_version: str,
     score_threshold: float | None,
     skip_ragas: bool = False,
+    ragas_timeout: int = 180,
+    ragas_max_retries: int = 2,
+    ragas_max_workers: int = 2,
+    ragas_batch_size: int | None = 1,
 ) -> Dict[str, Any]:
     questions = load_eval_questions(dataset_path)
     run_id = make_run_id(run_label)
@@ -75,7 +79,13 @@ def run_ragas_eval(
     if skip_ragas:
         return {"run_id": run_id, "run_dir": str(run_dir), "rag_outputs": str(run_dir / "rag_outputs.jsonl")}
 
-    ragas_results, metrics = run_ragas_metrics(outputs)
+    ragas_results, metrics = run_ragas_metrics(
+        outputs,
+        timeout=ragas_timeout,
+        max_retries=ragas_max_retries,
+        max_workers=ragas_max_workers,
+        batch_size=ragas_batch_size,
+    )
     error_cases = build_ragas_error_cases(ragas_results)
     write_jsonl(run_dir / "ragas_results.jsonl", ragas_results)
     write_jsonl(run_dir / "ragas_error_cases.jsonl", error_cases)
@@ -115,6 +125,10 @@ def main() -> None:
     parser.add_argument("--score-threshold", type=float, default=0.7)
     parser.add_argument("--collection", default=config.CHILD_COLLECTION)
     parser.add_argument("--skip-ragas", action="store_true")
+    parser.add_argument("--ragas-timeout", type=int, default=180)
+    parser.add_argument("--ragas-max-retries", type=int, default=2)
+    parser.add_argument("--ragas-max-workers", type=int, default=2)
+    parser.add_argument("--ragas-batch-size", type=int, default=1)
     args = parser.parse_args()
 
     result = run_ragas_eval(
@@ -126,6 +140,10 @@ def main() -> None:
         dataset_version=args.dataset_version,
         score_threshold=args.score_threshold,
         skip_ragas=args.skip_ragas,
+        ragas_timeout=args.ragas_timeout,
+        ragas_max_retries=args.ragas_max_retries,
+        ragas_max_workers=args.ragas_max_workers,
+        ragas_batch_size=args.ragas_batch_size,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

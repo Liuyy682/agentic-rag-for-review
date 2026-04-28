@@ -24,6 +24,10 @@ def run_ragbench_eval(
     generate: bool = False,
     ragas: bool = False,
     offset: int = 0,
+    ragas_timeout: int = 180,
+    ragas_max_retries: int = 2,
+    ragas_max_workers: int = 2,
+    ragas_batch_size: int | None = 1,
 ) -> Dict[str, Any]:
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
@@ -52,7 +56,13 @@ def run_ragbench_eval(
 
     if ragas and not generate:
         ragas_outputs = to_ragas_outputs(rows, response_source="ragbench")
-        ragas_results, ragas_metrics = run_ragas_metrics(ragas_outputs)
+        ragas_results, ragas_metrics = run_ragas_metrics(
+            ragas_outputs,
+            timeout=ragas_timeout,
+            max_retries=ragas_max_retries,
+            max_workers=ragas_max_workers,
+            batch_size=ragas_batch_size,
+        )
         ragas_error_cases = build_ragas_error_cases(ragas_results)
         write_jsonl(output / "ragbench_ragas_results.jsonl", ragas_results)
         write_jsonl(output / "ragbench_ragas_error_cases.jsonl", ragas_error_cases)
@@ -78,7 +88,13 @@ def run_ragbench_eval(
 
         if ragas:
             ragas_outputs = to_ragas_outputs(rows, response_source="generated", generated_rows=generated_rows)
-            ragas_results, ragas_metrics = run_ragas_metrics(ragas_outputs)
+            ragas_results, ragas_metrics = run_ragas_metrics(
+                ragas_outputs,
+                timeout=ragas_timeout,
+                max_retries=ragas_max_retries,
+                max_workers=ragas_max_workers,
+                batch_size=ragas_batch_size,
+            )
             ragas_error_cases = build_ragas_error_cases(ragas_results)
             write_jsonl(output / "ragbench_generated_ragas_results.jsonl", ragas_results)
             write_jsonl(output / "ragbench_generated_ragas_error_cases.jsonl", ragas_error_cases)
@@ -283,6 +299,10 @@ def main() -> None:
     parser.add_argument("--output-dir", default=str(PROJECT_DIR / "evaluation" / "reports" / "ragbench"))
     parser.add_argument("--generate", action="store_true", help="Call the configured local LLM with RAGBench contexts.")
     parser.add_argument("--ragas", action="store_true", help="Recompute RAGAS metrics using current local RAGAS setup.")
+    parser.add_argument("--ragas-timeout", type=int, default=180)
+    parser.add_argument("--ragas-max-retries", type=int, default=2)
+    parser.add_argument("--ragas-max-workers", type=int, default=2)
+    parser.add_argument("--ragas-batch-size", type=int, default=1)
     args = parser.parse_args()
 
     try:
@@ -294,6 +314,10 @@ def main() -> None:
             generate=args.generate,
             ragas=args.ragas,
             offset=args.offset,
+            ragas_timeout=args.ragas_timeout,
+            ragas_max_retries=args.ragas_max_retries,
+            ragas_max_workers=args.ragas_max_workers,
+            ragas_batch_size=args.ragas_batch_size,
         )
     except RuntimeError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

@@ -1,0 +1,9 @@
+metric,score
+adherence_rate,0.820000
+completeness_score,0.658762
+ragas_context_relevance,0.141544
+ragas_faithfulness,0.936667
+relevance_score,0.290402
+rows,50.000000
+unsupported_sentence_rate,0.180000
+utilization_score,0.181183
