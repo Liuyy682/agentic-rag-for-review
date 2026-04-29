@@ -44,7 +44,14 @@ def run_retrieval_eval(
         {
             "question_id": item.question_id,
             "query": item.question,
-            "retrieved_chunks": retrieve_chunks(collection, item.question, top_k, score_threshold),
+            "retrieved_chunks": retrieve_chunks(
+                collection,
+                item.question,
+                top_k,
+                score_threshold,
+                vector_db=vector_db,
+                collection_name=collection_name,
+            ),
         }
         for item in questions
     ]
@@ -78,15 +85,23 @@ def retrieve_chunks(
     query: str,
     top_k: int,
     score_threshold: float | None = None,
+    vector_db: VectorDbManager | None = None,
+    collection_name: str | None = None,
 ) -> List[Dict[str, Any]]:
-    try:
-        kwargs = {"score_threshold": score_threshold} if score_threshold is not None else {}
-        raw_results = collection.similarity_search_with_score(query, k=top_k, **kwargs)
-        docs_with_scores = [(doc, score) for doc, score in raw_results]
-    except Exception:
-        kwargs = {"score_threshold": score_threshold} if score_threshold is not None else {}
-        docs = collection.similarity_search(query, k=top_k, **kwargs)
-        docs_with_scores = [(doc, None) for doc in docs]
+    candidate_k = top_k
+    if config.RERANKER_ENABLED:
+        candidate_k = max(candidate_k, config.RERANKER_TOP_N)
+
+    docs_with_scores = _retrieve_candidate_docs(
+        collection=collection,
+        query=query,
+        candidate_k=candidate_k,
+        score_threshold=score_threshold,
+        vector_db=vector_db,
+        collection_name=collection_name,
+    )
+
+    docs_with_scores = _rerank_candidates(query, docs_with_scores, top_k)
 
     chunks = []
     for rank, (doc, score) in enumerate(docs_with_scores, start=1):
@@ -107,13 +122,82 @@ def retrieve_chunks(
                 "source_file": str(metadata.get("source") or metadata.get("source_file") or ""),
                 "score_dense": None,
                 "score_sparse": None,
-                "score_fused": float(score) if score is not None else None,
-                "score_rerank": None,
+                "score_fused": _float_or_none(metadata.get("rrf_score")) or _float_or_none(score),
+                "score_rerank": _float_or_none(metadata.get("rerank_score")),
                 "metadata": metadata,
                 "text": getattr(doc, "page_content", "").strip(),
             }
         )
     return chunks
+
+
+def _retrieve_candidate_docs(
+    collection: Any,
+    query: str,
+    candidate_k: int,
+    score_threshold: float | None,
+    vector_db: VectorDbManager | None,
+    collection_name: str | None,
+) -> List[tuple[Any, float | None]]:
+    mode = config.RETRIEVAL_FUSION_MODE
+    if mode == "rrf" and vector_db and collection_name:
+        docs = vector_db.rrf_search(
+            collection_name=collection_name,
+            query=query,
+            dense_k=config.DENSE_TOP_K,
+            sparse_k=config.SPARSE_TOP_K,
+            fused_k=candidate_k,
+            rrf_k=config.RRF_K,
+        )
+        return [(doc, doc.metadata.get("rrf_score") if doc.metadata else None) for doc in docs]
+    if mode == "dense" and vector_db and collection_name:
+        return [(doc, None) for doc in vector_db.dense_search(collection_name, query, k=candidate_k)]
+    if mode == "sparse" and vector_db and collection_name:
+        return [(doc, None) for doc in vector_db.sparse_search(collection_name, query, k=candidate_k)]
+
+    kwargs = {"score_threshold": score_threshold} if score_threshold is not None else {}
+    try:
+        raw_results = collection.similarity_search_with_score(query, k=candidate_k, **kwargs)
+        return [(doc, score) for doc, score in raw_results]
+    except Exception:
+        docs = collection.similarity_search(query, k=candidate_k, **kwargs)
+        return [(doc, None) for doc in docs]
+
+
+def _rerank_candidates(
+    query: str,
+    docs_with_scores: List[tuple[Any, float | None]],
+    top_k: int,
+) -> List[tuple[Any, float | None]]:
+    if not config.RERANKER_ENABLED:
+        return docs_with_scores[:top_k]
+
+    docs = [doc for doc, _ in docs_with_scores[: config.RERANKER_TOP_N]]
+    try:
+        from rag_agent.reranker import get_reranker
+
+        reranked = get_reranker().rerank(
+            query=query,
+            documents=docs,
+            top_k=min(top_k, config.RERANKER_FINAL_TOP_K, len(docs)),
+            score_threshold=config.RERANKER_SCORE_THRESHOLD,
+        )
+    except Exception:
+        return docs_with_scores[:top_k]
+
+    from rag_agent.retrieval_fusion import get_doc_key
+
+    original_scores = {get_doc_key(doc): score for doc, score in docs_with_scores}
+    return [(doc, original_scores.get(get_doc_key(doc))) for doc in reranked]
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def main() -> None:

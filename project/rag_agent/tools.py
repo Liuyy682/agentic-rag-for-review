@@ -23,6 +23,13 @@ class ToolFactory:
                     parts.append(f"RRF Score: {doc.metadata.get('rrf_score'):.6f}")
                 if "rrf_rank_details" in doc.metadata:
                     parts.append(f"RRF Rank Details: {doc.metadata.get('rrf_rank_details')}")
+            if "rerank_score" in doc.metadata:
+                try:
+                    parts.append(f"Rerank Score: {float(doc.metadata.get('rerank_score')):.6f}")
+                except (TypeError, ValueError):
+                    parts.append(f"Rerank Score: {doc.metadata.get('rerank_score')}")
+            if config.RETRIEVAL_DEBUG and "rerank_rank" in doc.metadata:
+                parts.append(f"Rerank Rank: {doc.metadata.get('rerank_rank')}")
             parts.append(f"Content: {doc.page_content.strip()}")
             formatted_results.append("\n".join(parts))
 
@@ -37,6 +44,9 @@ class ToolFactory:
         """
         try:
             limit = limit or config.RRF_TOP_K
+            retrieval_limit = limit
+            if config.RERANKER_ENABLED:
+                retrieval_limit = max(retrieval_limit, config.RERANKER_TOP_N)
             mode = config.RETRIEVAL_FUSION_MODE
 
             if mode == "rrf":
@@ -47,24 +57,26 @@ class ToolFactory:
                     query=query,
                     dense_k=config.DENSE_TOP_K,
                     sparse_k=config.SPARSE_TOP_K,
-                    fused_k=limit,
+                    fused_k=retrieval_limit,
                     rrf_k=config.RRF_K,
                 )
             elif mode == "dense":
                 if not self.vector_db or not self.collection_name:
                     raise ValueError("Dense retrieval requires vector_db and collection_name")
-                results = self.vector_db.dense_search(self.collection_name, query, k=limit)
+                results = self.vector_db.dense_search(self.collection_name, query, k=retrieval_limit)
             elif mode == "sparse":
                 if not self.vector_db or not self.collection_name:
                     raise ValueError("Sparse retrieval requires vector_db and collection_name")
-                results = self.vector_db.sparse_search(self.collection_name, query, k=limit)
+                results = self.vector_db.sparse_search(self.collection_name, query, k=retrieval_limit)
             elif mode == "qdrant_hybrid":
-                results = self.collection.similarity_search(query, k=limit, score_threshold=0.7)
+                results = self.collection.similarity_search(query, k=retrieval_limit, score_threshold=0.7)
             else:
                 raise ValueError(f"Unsupported retrieval fusion mode: {mode}")
 
             if not results:
                 return "NO_RELEVANT_CHUNKS"
+
+            results = results[:retrieval_limit]
 
             return self._format_child_chunk_results(results)
 

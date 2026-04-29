@@ -1,19 +1,20 @@
 import argparse
 import json
-import re
+import math
+import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
-import config
-from evaluation.io import read_jsonl, write_jsonl, write_metrics_csv
-from evaluation.reports import write_compare_report
+from evaluation.io import read_jsonl, read_metrics_csv, write_jsonl, write_metrics_csv
+from evaluation.llm_config import answer_model as resolve_answer_model
+from evaluation.llm_config import api_key, base_url
 from evaluation.metrics.ragas_metrics import build_ragas_error_cases, run_ragas_metrics
-from evaluation.runners.ragbench_importer import import_ragbench
+from evaluation.runners.ragbench_importer import fetch_ragbench_rows
 
 
 def run_ragbench_eval(
@@ -21,288 +22,240 @@ def run_ragbench_eval(
     split: str,
     limit: int,
     output_dir: str,
-    generate: bool = False,
-    ragas: bool = False,
     offset: int = 0,
+    answer_model: str | None = None,
     ragas_timeout: int = 180,
     ragas_max_retries: int = 2,
-    ragas_max_workers: int = 2,
+    ragas_max_workers: int = 1,
     ragas_batch_size: int | None = 1,
+    reuse_existing: bool = False,
 ) -> Dict[str, Any]:
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
-    dataset_path = output / f"ragbench_{subset}_{split}_{limit}_eval_questions.jsonl"
-    contexts_path = output / f"ragbench_{subset}_{split}_{limit}_contexts.jsonl"
 
-    import_result = import_ragbench(
-        subset=subset,
-        split=split,
-        limit=limit,
-        output_dataset=str(dataset_path),
-        output_contexts=str(contexts_path),
-        offset=offset,
-    )
-    rows = read_jsonl(contexts_path)
-    official_metrics = summarize_official_metrics(rows)
-    write_metrics_csv(output / "ragbench_official_metrics_summary.csv", official_metrics)
-    write_ragbench_report(output / "ragbench_report.md", import_result, official_metrics, [])
+    rows = fetch_ragbench_rows(subset=subset, split=split, limit=limit, offset=offset)
+    retrieval_metrics, retrieval_details = compute_ragbench_retrieval_metrics(rows)
 
-    result: Dict[str, Any] = {
-        "dataset": str(dataset_path),
-        "contexts": str(contexts_path),
-        "official_metrics": official_metrics,
-        "report": str(output / "ragbench_report.md"),
-    }
-
-    if ragas and not generate:
-        ragas_outputs = to_ragas_outputs(rows, response_source="ragbench")
+    if reuse_existing and (output / "rag_outputs.jsonl").exists() and (output / "ragas_metrics_summary.csv").exists():
+        outputs = read_jsonl(output / "rag_outputs.jsonl")
+        ragas_results = read_jsonl(output / "ragas_results.jsonl") if (output / "ragas_results.jsonl").exists() else []
+        ragas_metrics = read_metrics_csv(output / "ragas_metrics_summary.csv")
+    else:
+        outputs = [answer_ragbench_row(row, subset, split, answer_model) for row in rows]
         ragas_results, ragas_metrics = run_ragas_metrics(
-            ragas_outputs,
+            outputs,
             timeout=ragas_timeout,
             max_retries=ragas_max_retries,
             max_workers=ragas_max_workers,
             batch_size=ragas_batch_size,
         )
-        ragas_error_cases = build_ragas_error_cases(ragas_results)
-        write_jsonl(output / "ragbench_ragas_results.jsonl", ragas_results)
-        write_jsonl(output / "ragbench_ragas_error_cases.jsonl", ragas_error_cases)
-        write_metrics_csv(output / "ragbench_ragas_metrics_summary.csv", ragas_metrics)
-        result["ragas_metrics"] = ragas_metrics
+    error_cases = build_ragas_error_cases(ragas_results)
 
-    if generate:
-        generated_rows = generate_answers(rows)
-        generated_metrics = summarize_generated_metrics(generated_rows)
-        error_cases = build_generated_error_cases(generated_rows)
-        write_jsonl(output / "ragbench_generated_outputs.jsonl", generated_rows)
-        write_jsonl(output / "ragbench_generated_error_cases.jsonl", error_cases)
-        write_metrics_csv(output / "ragbench_generated_metrics_summary.csv", generated_metrics)
-        write_compare_report(
-            output / "ragbench_generated_vs_reference_report.md",
-            baseline={"reference_response_token_f1": 1.0},
-            current=generated_metrics,
-            baseline_label="Reference",
-            current_label=config.LLM_MODEL,
-        )
-        write_ragbench_report(output / "ragbench_report.md", import_result, official_metrics, error_cases, generated_metrics)
-        result["generated_metrics"] = generated_metrics
+    write_jsonl(output / "rag_outputs.jsonl", outputs)
+    write_jsonl(output / "ragas_results.jsonl", ragas_results)
+    write_jsonl(output / "ragas_error_cases.jsonl", error_cases)
+    write_jsonl(output / "retrieval_metrics_by_question.jsonl", retrieval_details)
+    write_metrics_csv(output / "ragas_metrics_summary.csv", ragas_metrics)
+    write_metrics_csv(output / "retrieval_metrics_summary.csv", retrieval_metrics)
+    write_report(output / "ragbench_ragas_report.md", subset, split, limit, ragas_metrics, retrieval_metrics, error_cases)
 
-        if ragas:
-            ragas_outputs = to_ragas_outputs(rows, response_source="generated", generated_rows=generated_rows)
-            ragas_results, ragas_metrics = run_ragas_metrics(
-                ragas_outputs,
-                timeout=ragas_timeout,
-                max_retries=ragas_max_retries,
-                max_workers=ragas_max_workers,
-                batch_size=ragas_batch_size,
-            )
-            ragas_error_cases = build_ragas_error_cases(ragas_results)
-            write_jsonl(output / "ragbench_generated_ragas_results.jsonl", ragas_results)
-            write_jsonl(output / "ragbench_generated_ragas_error_cases.jsonl", ragas_error_cases)
-            write_metrics_csv(output / "ragbench_generated_ragas_metrics_summary.csv", ragas_metrics)
-            result["generated_ragas_metrics"] = ragas_metrics
+    return {
+        "subset": subset,
+        "split": split,
+        "rows": len(rows),
+        "rag_outputs": str(output / "rag_outputs.jsonl"),
+        "ragas_results": str(output / "ragas_results.jsonl"),
+        "ragas_metrics": ragas_metrics,
+        "retrieval_metrics": retrieval_metrics,
+        "report": str(output / "ragbench_ragas_report.md"),
+    }
 
+
+def answer_ragbench_row(
+    row: Dict[str, Any],
+    subset: str,
+    split: str,
+    answer_model: str | None,
+) -> Dict[str, Any]:
+    question = row.get("question", "")
+    documents = list(row.get("documents") or [])
+    answer = generate_answer(question, documents, answer_model)
+    question_id = f"ragbench_{subset}_{split}_{str(row.get('id', '')).replace('/', '_')}"
+    return {
+        "question_id": question_id,
+        "question": question,
+        "user_input": question,
+        "answer": answer,
+        "response": answer,
+        "contexts": documents,
+        "retrieved_contexts": documents,
+        "reference": row.get("response", ""),
+        "ground_truth": row.get("response", ""),
+    }
+
+
+def generate_answer(question: str, documents: List[str], answer_model: str | None) -> str:
+    from openai import OpenAI
+
+    client = OpenAI(
+        api_key=api_key(),
+        base_url=base_url(),
+    )
+    model = resolve_answer_model(answer_model)
+    context = "\n\n".join(f"[Document {i + 1}]\n{doc}" for i, doc in enumerate(documents))
+    prompt = (
+        f"Question:\n{question}\n\n"
+        f"Documents:\n{context}\n\n"
+        "Answer the question using only the documents. Keep the answer concise, preferably 1-3 sentences. "
+        "If the documents do not contain enough information, say so."
+    )
+    response = client.chat.completions.create(
+        model=model,
+        temperature=0,
+        max_tokens=int(os.environ.get("ANSWER_MAX_TOKENS", "512")),
+        messages=[
+            {"role": "system", "content": "You are a precise RAG answer generator."},
+            {"role": "user", "content": prompt},
+        ],
+    )
+    return response.choices[0].message.content or ""
+
+
+def compute_ragbench_retrieval_metrics(rows: List[Dict[str, Any]]) -> tuple[Dict[str, float], List[Dict[str, Any]]]:
+    details = [score_ragbench_context_order(row) for row in rows]
+    keys = sorted({key for row in details for key in row if key not in {"question_id", "question"}})
+    summary = {"rows": float(len(details))}
+    for key in keys:
+        values = [row[key] for row in details if isinstance(row.get(key), (int, float))]
+        if values:
+            summary[key] = sum(values) / len(values)
+    return summary, details
+
+
+def score_ragbench_context_order(row: Dict[str, Any]) -> Dict[str, Any]:
+    relevant_sentences = set(row.get("all_relevant_sentence_keys") or [])
+    sentence_order = [sentence[0] for group in row.get("documents_sentences") or [] for sentence in group]
+    document_order = [str(index) for index, _ in enumerate(row.get("documents") or [])]
+    relevant_documents = sorted({_document_id_from_sentence_key(key) for key in relevant_sentences if key})
+
+    result: Dict[str, Any] = {
+        "question_id": row.get("id"),
+        "question": row.get("question", ""),
+        "sentence_mrr": reciprocal_rank(sentence_order, relevant_sentences),
+        "document_mrr": reciprocal_rank(document_order, set(relevant_documents)),
+    }
+    for k in [1, 3, 5, 10, 20]:
+        result.update(prefix_metrics("sentence", k, sentence_order, relevant_sentences))
+        result.update(prefix_metrics("document", k, document_order, set(relevant_documents)))
     return result
 
 
-def summarize_official_metrics(rows: Iterable[Dict[str, Any]]) -> Dict[str, float]:
-    data = list(rows)
-    metrics = {
-        "rows": float(len(data)),
-        "adherence_rate": _mean(1.0 if row.get("adherence_score") else 0.0 for row in data),
-        "relevance_score": _mean(_num(row.get("relevance_score")) for row in data),
-        "utilization_score": _mean(_num(row.get("utilization_score")) for row in data),
-        "completeness_score": _mean(_num(row.get("completeness_score")) for row in data),
-        "ragas_faithfulness": _mean(_num(row.get("ragas_faithfulness")) for row in data),
-        "ragas_context_relevance": _mean(_num(row.get("ragas_context_relevance")) for row in data),
-        "unsupported_sentence_rate": _mean(
-            1.0 if row.get("unsupported_response_sentence_keys") else 0.0 for row in data
-        ),
-    }
-    return metrics
-
-
-def generate_answers(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    from langchain_ollama import ChatOllama
-    from langchain_core.messages import HumanMessage, SystemMessage
-
-    llm = ChatOllama(model=config.LLM_MODEL, temperature=config.LLM_TEMPERATURE)
-    outputs: List[Dict[str, Any]] = []
-    for row in rows:
-        context = "\n\n".join(
-            f"[Document {index}]\n{document}" for index, document in enumerate(row.get("documents") or [])
-        )
-        prompt = (
-            f"Question:\n{row['question']}\n\n"
-            f"Retrieved context:\n{context}\n\n"
-            "Answer the question using only the retrieved context. If the context is insufficient, say so."
-        )
-        response = llm.invoke(
-            [
-                SystemMessage(content="You are a careful RAG answer generator."),
-                HumanMessage(content=prompt),
-            ]
-        )
-        answer = str(response.content)
-        reference = row.get("reference_response", "")
-        outputs.append(
-            {
-                "question_id": row["question_id"],
-                "question": row["question"],
-                "answer": answer,
-                "reference": reference,
-                "token_f1": token_f1(answer, reference),
-                "documents": row.get("documents") or [],
-            }
-        )
-    return outputs
-
-
-def to_ragas_outputs(
-    rows: List[Dict[str, Any]],
-    response_source: str,
-    generated_rows: List[Dict[str, Any]] | None = None,
-) -> List[Dict[str, Any]]:
-    generated_by_id = {row["question_id"]: row for row in generated_rows or []}
-    outputs: List[Dict[str, Any]] = []
-    for row in rows:
-        generated = generated_by_id.get(row["question_id"], {})
-        response = generated.get("answer") if response_source == "generated" else row.get("reference_response", "")
-        reference = row.get("reference_response", "")
-        contexts = row.get("documents") or []
-        outputs.append(
-            {
-                "question_id": row["question_id"],
-                "question": row["question"],
-                "user_input": row["question"],
-                "answer": response,
-                "response": response,
-                "contexts": contexts,
-                "retrieved_contexts": contexts,
-                "reference": reference,
-                "ground_truth": reference,
-                "retrieved_metadata": [
-                    {
-                        "rank": index + 1,
-                        "chunk_id": f"{row['question_id']}_doc_{index}",
-                        "parent_id": f"{row['question_id']}_doc_{index}",
-                        "source_file": f"ragbench/{row['subset']}/{row['split']}/{row['ragbench_id']}",
-                    }
-                    for index, _ in enumerate(contexts)
-                ],
-            }
-        )
-    return outputs
-
-
-def summarize_generated_metrics(rows: Iterable[Dict[str, Any]]) -> Dict[str, float]:
-    data = list(rows)
+def prefix_metrics(prefix: str, k: int, ranked_ids: List[str], relevant_ids: set[str]) -> Dict[str, float]:
+    top_k = ranked_ids[:k]
+    hits = [item for item in top_k if item in relevant_ids]
     return {
-        "rows": float(len(data)),
-        "generated_token_f1": _mean(_num(row.get("token_f1")) for row in data),
+        f"{prefix}_recall@{k}": len(set(hits)) / len(relevant_ids) if relevant_ids else 0.0,
+        f"{prefix}_precision@{k}": len(hits) / k if k else 0.0,
+        f"{prefix}_hitrate@{k}": 1.0 if hits else 0.0,
+        f"{prefix}_ndcg@{k}": ndcg_at_k(top_k, relevant_ids, k),
     }
 
 
-def build_generated_error_cases(rows: Iterable[Dict[str, Any]], threshold: float = 0.35) -> List[Dict[str, Any]]:
-    cases = []
-    for row in rows:
-        if row.get("token_f1", 0.0) < threshold:
-            cases.append(
-                {
-                    "question_id": row["question_id"],
-                    "question": row["question"],
-                    "answer": row["answer"],
-                    "reference": row["reference"],
-                    "token_f1": row["token_f1"],
-                    "failure_type": "low_reference_overlap",
-                }
-            )
-    return cases
+def reciprocal_rank(ranked_ids: List[str], relevant_ids: set[str]) -> float:
+    for index, item in enumerate(ranked_ids, start=1):
+        if item in relevant_ids:
+            return 1.0 / index
+    return 0.0
 
 
-def token_f1(prediction: str, reference: str) -> float:
-    pred_tokens = normalize_text(prediction).split()
-    ref_tokens = normalize_text(reference).split()
-    if not pred_tokens and not ref_tokens:
-        return 1.0
-    if not pred_tokens or not ref_tokens:
+def ndcg_at_k(top_k: List[str], relevant_ids: set[str], k: int) -> float:
+    if not relevant_ids:
         return 0.0
-    common = {}
-    for token in pred_tokens:
-        common[token] = min(pred_tokens.count(token), ref_tokens.count(token))
-    overlap = sum(common.values())
-    if overlap == 0:
-        return 0.0
-    precision = overlap / len(pred_tokens)
-    recall = overlap / len(ref_tokens)
-    return 2 * precision * recall / (precision + recall)
+    dcg = sum((1.0 / math.log2(index + 2)) for index, item in enumerate(top_k[:k]) if item in relevant_ids)
+    ideal_hits = min(len(relevant_ids), k)
+    idcg = sum(1.0 / math.log2(index + 2) for index in range(ideal_hits))
+    return dcg / idcg if idcg else 0.0
 
 
-def normalize_text(text: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]+", " ", text.lower())).strip()
+def _document_id_from_sentence_key(key: str) -> str:
+    digits = []
+    for char in str(key):
+        if char.isdigit():
+            digits.append(char)
+        else:
+            break
+    return "".join(digits) if digits else ""
 
 
-def write_ragbench_report(
-    path: str | Path,
-    import_result: Dict[str, Any],
-    official_metrics: Dict[str, float],
+def write_report(
+    path: Path,
+    subset: str,
+    split: str,
+    limit: int,
+    ragas_metrics: Dict[str, float],
+    retrieval_metrics: Dict[str, float],
     error_cases: List[Dict[str, Any]],
-    generated_metrics: Dict[str, float] | None = None,
 ) -> None:
     lines = [
-        "# RAGBench Evaluation Report",
+        "# RAGBench + RAGAS Report",
         "",
         "## Dataset",
-        f"- subset: `{import_result['subset']}`",
-        f"- split: `{import_result['split']}`",
-        f"- rows: {import_result['rows']}",
-        f"- eval dataset: `{import_result['output_dataset']}`",
-        f"- contexts: `{import_result['output_contexts']}`",
+        f"- subset: `{subset}`",
+        f"- split: `{split}`",
+        f"- rows: {limit}",
         "",
-        "## Official RAGBench Labels",
+        "## RAGAS Metrics",
         "| Metric | Score |",
         "|---|---:|",
     ]
-    lines.extend(f"| {key} | {value:.4f} |" for key, value in sorted(official_metrics.items()))
-    if generated_metrics:
-        lines.extend(["", "## Generated Answer Metrics", "| Metric | Score |", "|---|---:|"])
-        lines.extend(f"| {key} | {value:.4f} |" for key, value in sorted(generated_metrics.items()))
-    lines.extend(["", "## Generated Failure Cases"])
+    lines.extend(f"| {key} | {value:.4f} |" for key, value in sorted(ragas_metrics.items()))
+    lines.extend(["", "## Retrieval Metrics", "| Metric | Score |", "|---|---:|"])
+    important_keys = [
+        "document_recall@1",
+        "document_recall@3",
+        "document_recall@5",
+        "document_precision@3",
+        "document_hitrate@3",
+        "document_mrr",
+        "document_ndcg@3",
+        "sentence_recall@5",
+        "sentence_recall@10",
+        "sentence_recall@20",
+        "sentence_precision@10",
+        "sentence_hitrate@10",
+        "sentence_mrr",
+        "sentence_ndcg@10",
+    ]
+    for key in important_keys:
+        if key in retrieval_metrics:
+            lines.append(f"| {key} | {retrieval_metrics[key]:.4f} |")
+    lines.extend(["", "## Failure Cases"])
     if error_cases:
         for case in error_cases[:20]:
-            lines.append(f"- `{case['question_id']}` token_f1={case['token_f1']:.3f}: {case['question'][:140]}")
+            lines.append(f"- `{case['question_id']}` {case['failure_type']}: {case['question'][:140]}")
     else:
-        lines.append("- No generated-answer failure cases recorded.")
+        lines.append("- No failure cases detected by current thresholds.")
     lines.append("")
-    Path(path).write_text("\n".join(lines), encoding="utf-8")
-
-
-def _num(value: Any) -> float:
-    try:
-        if value is None:
-            return 0.0
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _mean(values: Iterable[float]) -> float:
-    rows = list(values)
-    return sum(rows) / len(rows) if rows else 0.0
+    path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Fetch RAGBench rows and run automatic benchmark summaries.")
+    parser = argparse.ArgumentParser(
+        description="Evaluate a RAGBench subset by answering with question+documents, then scoring with RAGAS."
+    )
     parser.add_argument("--subset", default="covidqa")
     parser.add_argument("--split", default="test")
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--output-dir", default=str(PROJECT_DIR / "evaluation" / "reports" / "ragbench"))
-    parser.add_argument("--generate", action="store_true", help="Call the configured local LLM with RAGBench contexts.")
-    parser.add_argument("--ragas", action="store_true", help="Recompute RAGAS metrics using current local RAGAS setup.")
+    parser.add_argument("--answer-model", default=None)
+    parser.add_argument("--generate", action="store_true", help="Kept for compatibility; answer generation always runs.")
+    parser.add_argument("--ragas", action="store_true", help="Kept for compatibility; RAGAS always runs in this runner.")
     parser.add_argument("--ragas-timeout", type=int, default=180)
     parser.add_argument("--ragas-max-retries", type=int, default=2)
-    parser.add_argument("--ragas-max-workers", type=int, default=2)
+    parser.add_argument("--ragas-max-workers", type=int, default=1)
     parser.add_argument("--ragas-batch-size", type=int, default=1)
+    parser.add_argument("--reuse-existing", action="store_true", help="Reuse existing RAG/RAGAS outputs and refresh retrieval metrics/report.")
     args = parser.parse_args()
 
     try:
@@ -311,13 +264,13 @@ def main() -> None:
             split=args.split,
             limit=args.limit,
             output_dir=args.output_dir,
-            generate=args.generate,
-            ragas=args.ragas,
             offset=args.offset,
+            answer_model=args.answer_model,
             ragas_timeout=args.ragas_timeout,
             ragas_max_retries=args.ragas_max_retries,
             ragas_max_workers=args.ragas_max_workers,
             ragas_batch_size=args.ragas_batch_size,
+            reuse_existing=args.reuse_existing,
         )
     except RuntimeError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)

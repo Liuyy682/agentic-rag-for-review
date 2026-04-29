@@ -3,6 +3,7 @@ import math
 from typing import Any, Dict, List
 
 import config
+from evaluation.llm_config import api_key, base_url, judge_model
 
 
 def run_ragas_metrics(
@@ -25,12 +26,6 @@ def run_ragas_metrics(
             "or rerun without `--ragas` to only save/import benchmark outputs."
         ) from exc
 
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise RuntimeError(
-            "RAGAS 0.4.x requires a structured-output judge LLM. Set OPENAI_API_KEY "
-            "or configure a RAGAS-compatible InstructorLLM before running with `--ragas`."
-        )
-
     dataset = Dataset.from_list(
         [
             {
@@ -43,10 +38,15 @@ def run_ragas_metrics(
         ]
     )
     client = OpenAI(
-        api_key=os.environ["OPENAI_API_KEY"],
-        base_url=os.environ.get("OPENAI_BASE_URL") or None,
+        api_key=api_key(),
+        base_url=base_url(),
     )
-    llm = llm_factory(os.environ.get("RAGAS_LLM_MODEL", "gpt-4o-mini"), client=client)
+    llm = llm_factory(
+        judge_model(),
+        client=client,
+        max_tokens=int(os.environ.get("RAGAS_MAX_TOKENS", "4096")),
+        temperature=0,
+    )
     metrics = [
         _Faithfulness(llm=llm),
         _ContextPrecision(llm=llm),
@@ -59,8 +59,8 @@ def run_ragas_metrics(
         embeddings = LangchainEmbeddingsWrapper(
             OpenAIEmbeddings(
                 model=os.environ.get("RAGAS_EMBEDDING_MODEL", "text-embedding-3-small"),
-                api_key=os.environ["OPENAI_API_KEY"],
-                base_url=os.environ.get("OPENAI_BASE_URL") or None,
+                api_key=api_key(),
+                base_url=base_url(),
             )
         )
         metrics.append(_AnswerRelevancy(llm=llm, embeddings=embeddings))
@@ -74,11 +74,10 @@ def run_ragas_metrics(
             batch_size=batch_size,
         )
     except APIStatusError as exc:
-        base_url = os.environ.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"
         raise RuntimeError(
             f"RAGAS judge request failed with HTTP {exc.status_code}. "
-            f"Check OPENAI_API_KEY, OPENAI_BASE_URL ({base_url}), "
-            f"RAGAS_LLM_MODEL, and RAGAS_EMBEDDING_MODEL."
+            f"Check DEEPSEEK_API_KEY/OPENAI_API_KEY, base URL ({base_url()}), "
+            f"RAGAS_LLM_MODEL/DEEPSEEK_MODEL, and RAGAS_EMBEDDING_MODEL."
         ) from exc
     rows = result.to_pandas().to_dict(orient="records")
     metrics_summary = summarize_ragas_rows(rows)

@@ -3,6 +3,13 @@ import os
 # --- Directory Configuration ---
 _BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 
+HF_CACHE_DIR = os.path.join(_BASE_DIR, ".cache", "huggingface")
+_DEFAULT_HF_HOME = os.path.expanduser("~/.cache/huggingface")
+if not os.path.exists(_DEFAULT_HF_HOME) or not os.access(_DEFAULT_HF_HOME, os.W_OK):
+    os.environ.setdefault("HF_HOME", HF_CACHE_DIR)
+    os.environ.setdefault("HF_HUB_CACHE", os.path.join(HF_CACHE_DIR, "hub"))
+    os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", os.path.join(HF_CACHE_DIR, "sentence-transformers"))
+
 MARKDOWN_DIR = os.path.join(_BASE_DIR, "markdown_docs")
 PARENT_STORE_PATH = os.path.join(_BASE_DIR, "parent_store")
 QDRANT_DB_PATH = os.path.join(_BASE_DIR, "qdrant_db")
@@ -14,11 +21,21 @@ SPARSE_VECTOR_NAME = "sparse"
 # --- Retrieval Fusion Configuration ---
 RETRIEVAL_FUSION_MODE = "rrf"
 # Options: "qdrant_hybrid", "rrf", "dense", "sparse"
-DENSE_TOP_K = 20
-SPARSE_TOP_K = 20
-RRF_TOP_K = 8
+DENSE_TOP_K = 50
+SPARSE_TOP_K = 50
+RRF_TOP_K = 10
 RRF_K = 60
 RETRIEVAL_DEBUG = False
+
+# --- Cross-Encoder Reranker Configuration ---
+RERANKER_ENABLED = True
+RERANKER_MODEL = "cross-encoder/ms-marco-TinyBERT-L-2-v2"
+RERANKER_DEVICE = "auto"
+RERANKER_BATCH_SIZE = 8
+RERANKER_TOP_N = 40
+RERANKER_FINAL_TOP_K = 5
+RERANKER_MAX_LENGTH = 512
+RERANKER_SCORE_THRESHOLD = None
 
 # --- Model Configuration ---
 DENSE_MODEL = "sentence-transformers/all-mpnet-base-v2"
@@ -29,6 +46,7 @@ LLM_TEMPERATURE = 0
 # --- Agent Configuration ---
 MAX_TOOL_CALLS = 8
 MAX_ITERATIONS = 10
+MAX_ANSWER_EVALUATION_RETRIES = 2
 GRAPH_RECURSION_LIMIT = 50
 BASE_TOKEN_THRESHOLD = 2000
 TOKEN_GROWTH_FACTOR = 0.9

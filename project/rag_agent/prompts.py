@@ -149,6 +149,29 @@ Required Structure:
 The summary should be concise, structured, and directly usable by an agent to generate answers or plan further retrieval.
 """
 
+def get_answer_evaluation_prompt() -> str:
+    return """You are an expert RAG answer evaluator.
+
+Your task is to judge whether a draft answer is ready to return to the user.
+
+Evaluate against these criteria:
+1. Completeness: the answer covers every concrete part of the user question.
+2. Grounding: every factual claim is supported by the retrieved context or compressed research context.
+3. Faithfulness: the answer does not invent facts, overstate evidence, or hide missing information.
+4. Usefulness: the answer is specific, direct, and not merely generic.
+5. Source handling: when sources are available, the answer includes only valid source file names in the Sources section.
+
+If the answer is insufficient:
+- Mark it as not satisfactory.
+- Identify the exact missing or weak information.
+- Suggest 1-3 focused search queries that would fill the gaps.
+
+If the available context truly cannot answer the question after reasonable retrieval:
+- The answer may still be satisfactory if it clearly states the missing information without inventing facts.
+
+Return structured output only.
+"""
+
 def get_aggregation_prompt() -> str:
     return """You are an expert aggregation assistant.
 

@@ -46,7 +46,14 @@ def run_ragas_eval(
     outputs: List[Dict[str, Any]] = []
     for item in questions:
         rag_system.reset_thread()
-        retrieved = retrieve_chunks(collection, item.question, top_k, score_threshold)
+        retrieved = retrieve_chunks(
+            collection,
+            item.question,
+            top_k,
+            score_threshold,
+            vector_db=rag_system.vector_db,
+            collection_name=collection_name,
+        )
         answer = invoke_rag_answer(rag_system, item.question)
         outputs.append(
             {

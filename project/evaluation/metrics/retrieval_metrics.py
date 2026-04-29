@@ -187,7 +187,7 @@ def _relevance_grade(
         return 3
     if parent_gold and str(chunk.get("parent_id")) in parent_gold:
         return 2
-    if source_gold and str(chunk.get("source_file")) in source_gold:
+    if not child_gold and not parent_gold and source_gold and str(chunk.get("source_file")) in source_gold:
         return 1
     return 0
 

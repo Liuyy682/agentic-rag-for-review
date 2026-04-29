@@ -26,5 +26,7 @@ class AgentState(MessagesState):
     retrieval_keys: Annotated[Set[str], set_union] = set()
     final_answer: str = ""
     agent_answers: List[dict] = []
+    answer_is_satisfactory: bool = False
+    answer_evaluation_count: Annotated[int, operator.add] = 0
     tool_call_count: Annotated[int, operator.add] = 0
     iteration_count: Annotated[int, operator.add] = 0
