@@ -169,7 +169,13 @@ If the answer is insufficient:
 If the available context truly cannot answer the question after reasonable retrieval:
 - The answer may still be satisfactory if it clearly states the missing information without inventing facts.
 
-Return structured output only.
+Return JSON only, with exactly these keys:
+{
+  "is_satisfactory": true or false,
+  "critique": "short explanation",
+  "missing_information": ["specific missing fact"],
+  "suggested_search_queries": ["focused search query"]
+}
 """
 
 def get_aggregation_prompt() -> str:

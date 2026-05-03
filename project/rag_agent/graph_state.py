@@ -28,5 +28,7 @@ class AgentState(MessagesState):
     agent_answers: List[dict] = []
     answer_is_satisfactory: bool = False
     answer_evaluation_count: Annotated[int, operator.add] = 0
+    search_call_count: Annotated[int, operator.add] = 0
+    parent_retrieve_call_count: Annotated[int, operator.add] = 0
     tool_call_count: Annotated[int, operator.add] = 0
     iteration_count: Annotated[int, operator.add] = 0

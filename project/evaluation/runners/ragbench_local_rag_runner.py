@@ -20,6 +20,9 @@ from evaluation.metrics.retrieval_metrics import DEFAULT_K_VALUES, build_retriev
 from evaluation.runners.ragbench_importer import import_ragbench
 from evaluation.runners.retrieval_eval_runner import retrieve_chunks
 from langchain_core.documents import Document
+from langchain_core.messages import ToolMessage
+from rag_agent.graph import create_agent_subgraph
+from rag_agent.tools import ToolFactory
 
 
 def run_ragbench_local_rag_eval(
@@ -38,6 +41,7 @@ def run_ragbench_local_rag_eval(
     ragas_batch_size: int | None = 4,
     generate_answers: bool = True,
     answer_model: str | None = None,
+    use_agent_graph: bool = False,
 ) -> Dict[str, Any]:
     run_id = make_run_id(run_label)
     output = Path(output_dir)
@@ -66,9 +70,21 @@ def run_ragbench_local_rag_eval(
 
     retrieval_rows = []
     ragas_outputs = []
+    agent_diagnostics = []
+    partial_rag_outputs_path = run_dir / "rag_outputs.partial.jsonl"
+    partial_agent_diagnostics_path = run_dir / "agent_diagnostics.partial.jsonl"
+    partial_rag_outputs_path.write_text("", encoding="utf-8")
+    partial_agent_diagnostics_path.write_text("", encoding="utf-8")
     resolved_answer_model = resolve_answer_model(answer_model) if generate_answers else None
-    answer_generator = _AnswerGenerator(resolved_answer_model) if generate_answers else None
-    for question, row in zip(questions, rows):
+    answer_generator = None
+    if generate_answers:
+        answer_generator = (
+            _AgentGraphAnswerGenerator(collection, vector_db, collection_name, resolved_answer_model)
+            if use_agent_graph
+            else _AnswerGenerator(resolved_answer_model)
+        )
+    for index, (question, row) in enumerate(zip(questions, rows), start=1):
+        print(f"[{index}/{len(questions)}] Generating answer for {question.question_id}...", flush=True)
         chunks = retrieve_chunks(
             collection=collection,
             query=question.question,
@@ -85,37 +101,50 @@ def run_ragbench_local_rag_eval(
             }
         )
         contexts = [chunk["text"] for chunk in chunks]
-        answer = (
+        answer_result = (
             answer_generator.generate(question.question, contexts)
             if answer_generator
-            else row.get("reference_response", "")
+            else {"answer": row.get("reference_response", ""), "contexts": contexts, "diagnostics": {}}
         )
-        ragas_outputs.append(
-            {
-                "question_id": question.question_id,
-                "question": question.question,
-                "user_input": question.question,
-                "answer": answer,
-                "response": answer,
-                "contexts": contexts,
-                "retrieved_contexts": contexts,
-                "reference": row.get("reference_response", ""),
-                "ground_truth": row.get("reference_response", ""),
-                "answer_source": "generated" if generate_answers else "reference",
-                "answer_model": resolved_answer_model,
-                "retrieved_metadata": [
-                    {
-                        "rank": chunk["rank"],
-                        "chunk_id": chunk["chunk_id"],
-                        "parent_id": chunk["parent_id"],
-                        "source_file": chunk["source_file"],
-                        "score_fused": chunk["score_fused"],
-                        "score_rerank": chunk["score_rerank"],
-                    }
-                    for chunk in chunks
-                ],
-            }
-        )
+        if isinstance(answer_result, str):
+            answer = answer_result
+            answer_contexts = contexts
+            diagnostics = {}
+        else:
+            answer = answer_result["answer"]
+            answer_contexts = answer_result.get("contexts") or contexts
+            diagnostics = answer_result.get("diagnostics") or {}
+        diagnostic_row = {"question_id": question.question_id, **diagnostics}
+        output_row = {
+            "question_id": question.question_id,
+            "question": question.question,
+            "user_input": question.question,
+            "answer": answer,
+            "response": answer,
+            "contexts": answer_contexts,
+            "retrieved_contexts": answer_contexts,
+            "reference": row.get("reference_response", ""),
+            "ground_truth": row.get("reference_response", ""),
+            "answer_source": "agent_graph" if use_agent_graph and generate_answers else ("generated" if generate_answers else "reference"),
+            "answer_model": resolved_answer_model,
+            "agent_diagnostics": diagnostics,
+            "retrieved_metadata": [
+                {
+                    "rank": chunk["rank"],
+                    "chunk_id": chunk["chunk_id"],
+                    "parent_id": chunk["parent_id"],
+                    "source_file": chunk["source_file"],
+                    "score_fused": chunk["score_fused"],
+                    "score_rerank": chunk["score_rerank"],
+                }
+                for chunk in chunks
+            ],
+        }
+        agent_diagnostics.append(diagnostic_row)
+        ragas_outputs.append(output_row)
+        _append_jsonl(partial_agent_diagnostics_path, diagnostic_row)
+        _append_jsonl(partial_rag_outputs_path, output_row)
+        print(f"[{index}/{len(questions)}] Done {question.question_id}: {diagnostics}", flush=True)
 
     k_values = sorted(set(DEFAULT_K_VALUES + [top_k]))
     retrieval_metrics, per_question = compute_retrieval_metrics(questions, retrieval_rows, k_values=k_values)
@@ -138,6 +167,7 @@ def run_ragbench_local_rag_eval(
             "reranker_final_top_k": config.RERANKER_FINAL_TOP_K,
             "answer_source": "generated" if generate_answers else "reference",
             "answer_model": resolved_answer_model,
+            "use_agent_graph": use_agent_graph,
         }
     )
 
@@ -145,6 +175,7 @@ def run_ragbench_local_rag_eval(
     write_jsonl(run_dir / "retrieval_per_question_metrics.jsonl", per_question)
     write_jsonl(run_dir / "retrieval_error_cases.jsonl", retrieval_error_cases)
     write_jsonl(run_dir / "rag_outputs.jsonl", ragas_outputs)
+    write_jsonl(run_dir / "agent_diagnostics.jsonl", agent_diagnostics)
     write_metrics_csv(run_dir / "retrieval_metrics_summary.csv", retrieval_metrics)
     (run_dir / "run_metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -159,6 +190,7 @@ def run_ragbench_local_rag_eval(
         "latest_dir": str(latest_dir),
         "import_result": import_result,
         "retrieval_metrics": retrieval_metrics,
+        "agent_diagnostics_summary": _summarize_agent_diagnostics(agent_diagnostics),
     }
     if skip_ragas:
         return result
@@ -287,6 +319,82 @@ class _AnswerGenerator:
         )
 
 
+class _AgentGraphAnswerGenerator:
+    def __init__(self, collection, vector_db: VectorDbManager, collection_name: str, model: str) -> None:
+        llm = _create_eval_llm(model)
+        tools = ToolFactory(
+            collection,
+            vector_db=vector_db,
+            collection_name=collection_name,
+        ).create_tools()
+        self.agent_subgraph = create_agent_subgraph(llm, tools)
+
+    def generate(self, question: str, fallback_contexts: List[str]) -> Dict[str, Any]:
+        state = self.agent_subgraph.invoke(
+            {"question": question.strip(), "question_index": 0, "messages": []},
+            config={"recursion_limit": config.GRAPH_RECURSION_LIMIT},
+        )
+        answer = str(state.get("final_answer") or "").strip()
+        contexts = _tool_contexts_from_state(state) or fallback_contexts
+        search_calls = int(state.get("search_call_count") or 0)
+        evaluation_count = int(state.get("answer_evaluation_count") or 0)
+        diagnostics = {
+            "answer_is_satisfactory": bool(state.get("answer_is_satisfactory", False)),
+            "answer_evaluation_count": evaluation_count,
+            "answer_revision_count": max(evaluation_count - 1, 0),
+            "search_call_count": search_calls,
+            "retry_search_count": max(search_calls - 1, 0),
+            "parent_retrieve_call_count": int(state.get("parent_retrieve_call_count") or 0),
+            "tool_call_count": int(state.get("tool_call_count") or 0),
+            "iteration_count": int(state.get("iteration_count") or 0),
+        }
+        return {"answer": answer, "contexts": contexts, "diagnostics": diagnostics}
+
+
+def _create_eval_llm(model: str):
+    try:
+        key = api_key()
+    except RuntimeError:
+        from langchain_ollama import ChatOllama
+
+        return ChatOllama(model=model, temperature=config.LLM_TEMPERATURE)
+
+    from langchain_openai import ChatOpenAI
+
+    return ChatOpenAI(
+        model=model,
+        temperature=config.LLM_TEMPERATURE,
+        api_key=key,
+        base_url=base_url(),
+        timeout=120,
+        max_retries=1,
+    )
+
+
+def _tool_contexts_from_state(state: Dict[str, Any]) -> List[str]:
+    contexts: List[str] = []
+    seen = set()
+    for message in state.get("messages", []):
+        if isinstance(message, ToolMessage) and message.content and message.content not in seen:
+            seen.add(message.content)
+            contexts.append(str(message.content))
+    return contexts
+
+
+def _summarize_agent_diagnostics(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    if not rows:
+        return {}
+    return {
+        "rows": len(rows),
+        "total_search_calls": sum(int(row.get("search_call_count") or 0) for row in rows),
+        "total_retry_searches": sum(int(row.get("retry_search_count") or 0) for row in rows),
+        "questions_with_retry_search": sum(1 for row in rows if int(row.get("retry_search_count") or 0) > 0),
+        "total_answer_evaluations": sum(int(row.get("answer_evaluation_count") or 0) for row in rows),
+        "total_answer_revisions": sum(int(row.get("answer_revision_count") or 0) for row in rows),
+        "questions_with_answer_revision": sum(1 for row in rows if int(row.get("answer_revision_count") or 0) > 0),
+    }
+
+
 def _ragbench_documents(rows: List[Dict[str, Any]]) -> List[Document]:
     docs: List[Document] = []
     for row in rows:
@@ -333,6 +441,11 @@ def _read_jsonl(path: str | Path) -> List[Dict[str, Any]]:
     return rows
 
 
+def _append_jsonl(path: str | Path, row: Dict[str, Any]) -> None:
+    with Path(path).open("a", encoding="utf-8") as f:
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate RAGBench through local Qdrant + RRF + reranker.")
     parser.add_argument("--subset", default="covidqa")
@@ -345,6 +458,7 @@ def main() -> None:
     parser.add_argument("--collection", default="ragbench_eval_child_chunks")
     parser.add_argument("--skip-ragas", action="store_true")
     parser.add_argument("--use-reference-answer", action="store_true", help="Use RAGBench reference answers instead of generated answers.")
+    parser.add_argument("--use-agent-graph", action="store_true", help="Generate answers through the agent subgraph, including self-evaluation and retry retrieval.")
     parser.add_argument("--answer-model", default=None)
     parser.add_argument("--ragas-input", help="Existing rag_outputs.jsonl to score without rebuilding Qdrant.")
     parser.add_argument("--ragas-timeout", type=int, default=180)
@@ -381,6 +495,7 @@ def main() -> None:
         ragas_batch_size=args.ragas_batch_size,
         generate_answers=not args.use_reference_answer,
         answer_model=args.answer_model,
+        use_agent_graph=args.use_agent_graph,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

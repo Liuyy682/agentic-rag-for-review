@@ -7,13 +7,11 @@ from .graph_state import State
 from .nodes import *
 from .edges import *
 
-def create_agent_graph(llm, tools_list):
+def create_agent_subgraph(llm, tools_list):
     llm_with_tools = llm.bind_tools(tools_list)
     tool_node = ToolNode(tools_list)
 
-    checkpointer = InMemorySaver()
-
-    print("Compiling agent graph...")
+    print("Compiling agent subgraph...")
     agent_builder = StateGraph(AgentState)
     agent_builder.add_node("orchestrator", partial(orchestrator, llm_with_tools=llm_with_tools))
     agent_builder.add_node("tools", tool_node)
@@ -33,7 +31,13 @@ def create_agent_graph(llm, tools_list):
     agent_builder.add_edge("collect_answer", "evaluate_answer")
     agent_builder.add_conditional_edges("evaluate_answer", route_after_answer_evaluation, {"orchestrator": "orchestrator", "__end__": END})
 
-    agent_subgraph = agent_builder.compile()
+    return agent_builder.compile()
+
+def create_agent_graph(llm, tools_list):
+    checkpointer = InMemorySaver()
+
+    print("Compiling agent graph...")
+    agent_subgraph = create_agent_subgraph(llm, tools_list)
 
     graph_builder = StateGraph(State)
     graph_builder.add_node("summarize_history", partial(summarize_history, llm=llm))

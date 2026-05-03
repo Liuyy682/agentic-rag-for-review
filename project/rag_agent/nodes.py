@@ -1,5 +1,7 @@
 from typing import Literal, Set
+import json
 import logging
+import re
 from langchain_core.documents import Document
 from langchain_core.messages import SystemMessage, HumanMessage, RemoveMessage, AIMessage, ToolMessage
 from langgraph.types import Command
@@ -223,8 +225,7 @@ def rerank_search_results(state: AgentState):
             reranked = docs[:top_k]
 
         new_content = _format_child_chunk_output(reranked)
-        updates.append(RemoveMessage(id=msg.id))
-        updates.append(ToolMessage(content=new_content, name=msg.name, tool_call_id=tool_call_id))
+        updates.append(ToolMessage(content=new_content, name=msg.name, tool_call_id=tool_call_id, id=msg.id))
 
     return {"messages": updates} if updates else {}
 
@@ -279,10 +280,13 @@ def should_compress_context(state: AgentState) -> Command[Literal["compress_cont
     messages = state["messages"]
 
     new_ids: Set[str] = set()
+    search_calls = 0
+    parent_retrieve_calls = 0
     for msg in reversed(messages):
         if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
             for tc in msg.tool_calls:
                 if tc["name"] == "retrieve_parent_chunks":
+                    parent_retrieve_calls += 1
                     raw = tc["args"].get("parent_id") or tc["args"].get("id") or tc["args"].get("ids") or []
                     if isinstance(raw, str):
                         new_ids.add(f"parent::{raw}")
@@ -290,6 +294,7 @@ def should_compress_context(state: AgentState) -> Command[Literal["compress_cont
                         new_ids.update(f"parent::{r}" for r in raw)
 
                 elif tc["name"] == "search_child_chunks":
+                    search_calls += 1
                     query = tc["args"].get("query", "")
                     if query:
                         new_ids.add(f"search::{query}")
@@ -304,7 +309,14 @@ def should_compress_context(state: AgentState) -> Command[Literal["compress_cont
     max_allowed = BASE_TOKEN_THRESHOLD + int(current_token_summary * TOKEN_GROWTH_FACTOR)
 
     goto = "compress_context" if current_tokens > max_allowed else "orchestrator"
-    return Command(update={"retrieval_keys": updated_ids}, goto=goto)
+    return Command(
+        update={
+            "retrieval_keys": updated_ids,
+            "search_call_count": search_calls,
+            "parent_retrieve_call_count": parent_retrieve_calls,
+        },
+        goto=goto,
+    )
 
 def compress_context(state: AgentState, llm):
     messages = state["messages"]
@@ -378,11 +390,11 @@ def evaluate_answer(state: AgentState, llm):
         f"DRAFT ANSWER:\n{answer}"
     )
 
-    llm_with_structure = llm.with_config(temperature=0).with_structured_output(AnswerEvaluation)
-    evaluation = llm_with_structure.invoke([
+    evaluation_response = llm.with_config(temperature=0).invoke([
         SystemMessage(content=get_answer_evaluation_prompt()),
         HumanMessage(content=evaluation_input),
     ])
+    evaluation = _parse_answer_evaluation(str(evaluation_response.content))
 
     if evaluation.is_satisfactory:
         return {"answer_is_satisfactory": True, "answer_evaluation_count": 1}
@@ -403,6 +415,20 @@ def evaluate_answer(state: AgentState, llm):
         "answer_evaluation_count": 1,
         "messages": [HumanMessage(content=feedback)],
     }
+
+def _parse_answer_evaluation(content: str) -> AnswerEvaluation:
+    try:
+        raw = json.loads(content)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", content, re.DOTALL)
+        raw = json.loads(match.group()) if match else {}
+
+    return AnswerEvaluation(
+        is_satisfactory=bool(raw.get("is_satisfactory", False)),
+        critique=str(raw.get("critique", "")).strip(),
+        missing_information=list(raw.get("missing_information") or []),
+        suggested_search_queries=list(raw.get("suggested_search_queries") or []),
+    )
 # --- End of Agent Nodes---
 
 def aggregate_answers(state: State, llm):
