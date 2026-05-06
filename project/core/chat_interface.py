@@ -2,12 +2,14 @@ import json
 import re
 from langchain_core.messages import HumanMessage, AIMessageChunk, ToolMessage
 
-SILENT_NODES = {"rewrite_query"}
-SYSTEM_NODES = {"summarize_history", "rewrite_query"}
+SILENT_NODES = {"rewrite_query", "recognize_intent", "plan_rag_tasks"}
+SYSTEM_NODES = {"summarize_history", "rewrite_query", "recognize_intent", "plan_rag_tasks"}
 
 SYSTEM_NODE_CONFIG = {
-    "rewrite_query":     {"title": "🔍 Query Analysis & Rewriting"},
-    "summarize_history": {"title": "📋 Chat History Summary"},
+    "rewrite_query":      {"title": "🔍 Query Analysis & Rewriting"},
+    "recognize_intent":   {"title": "🔍 Intent Recognition"},
+    "plan_rag_tasks":     {"title": "🧭 Task Planning"},
+    "summarize_history":  {"title": "📋 Chat History Summary"},
 }
 
 # --- Helpers ---
@@ -51,6 +53,23 @@ def format_rewrite_content(buffer):
             lines.append(f"\nClarification needed: *{clarification}*")
     return "\n".join(lines)
 
+def format_intent_content(buffer):
+    data = parse_rewrite_json(buffer)
+    if not data:
+        return "⏳ Recognizing intent..."
+
+    intent_type = data.get("intent_type", "unknown")
+    lines = [f"**Intent:** `{intent_type}`"]
+    if data.get("normalized_query"):
+        lines.append(f"\n**Normalized query:** {data['normalized_query']}")
+    if data.get("tasks"):
+        lines.append("\n**Planned tasks:**")
+        lines.extend(f"- {task.get('query', '')}" for task in data["tasks"])
+    clarification = data.get("clarification_needed", "")
+    if clarification and intent_type == "clarification":
+        lines.append(f"\nClarification needed: *{clarification}*")
+    return "\n".join(lines)
+
 # --- End of Helpers ---
 
 class ChatInterface:
@@ -63,7 +82,12 @@ class ChatInterface:
         system_node_buffer[node] = system_node_buffer.get(node, "") + chunk.content
         buffer = system_node_buffer[node]
         title  = SYSTEM_NODE_CONFIG[node]["title"]
-        content = format_rewrite_content(buffer) if node == "rewrite_query" else buffer
+        if node == "rewrite_query":
+            content = format_rewrite_content(buffer)
+        elif node == "recognize_intent":
+            content = format_intent_content(buffer)
+        else:
+            content = buffer
 
         idx = find_msg_idx(response_messages, node)
         if idx is None:
@@ -71,7 +95,7 @@ class ChatInterface:
         else:
             response_messages[idx]["content"] = content
 
-        if node == "rewrite_query":
+        if node in ("rewrite_query", "recognize_intent"):
             self._surface_clarification(buffer, response_messages)
 
     def _surface_clarification(self, buffer, response_messages):

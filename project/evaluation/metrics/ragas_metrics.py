@@ -40,6 +40,8 @@ def run_ragas_metrics(
     client = OpenAI(
         api_key=api_key(),
         base_url=base_url(),
+        timeout=timeout,
+        max_retries=max_retries,
     )
     llm = llm_factory(
         judge_model(),
@@ -69,7 +71,7 @@ def run_ragas_metrics(
         result = evaluate(
             dataset,
             metrics=metrics,
-            raise_exceptions=True,
+            raise_exceptions=False,
             run_config=RunConfig(timeout=timeout, max_retries=max_retries, max_workers=max_workers),
             batch_size=batch_size,
         )

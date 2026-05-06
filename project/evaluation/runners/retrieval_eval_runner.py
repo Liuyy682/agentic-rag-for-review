@@ -185,7 +185,7 @@ def _rerank_candidates(
     except Exception:
         return docs_with_scores[:top_k]
 
-    from rag_agent.retrieval_fusion import get_doc_key
+    from retrieval.fusion import get_doc_key
 
     original_scores = {get_doc_key(doc): score for doc, score in docs_with_scores}
     return [(doc, original_scores.get(get_doc_key(doc))) for doc in reranked]

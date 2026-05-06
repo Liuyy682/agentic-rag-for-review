@@ -6,7 +6,7 @@ from langchain_core.documents import Document
 from langchain_core.messages import SystemMessage, HumanMessage, RemoveMessage, AIMessage, ToolMessage
 from langgraph.types import Command
 from .graph_state import State, AgentState
-from .schemas import QueryAnalysis, AnswerEvaluation
+from .schemas import AnswerEvaluation, IntentAnalysis
 from .prompts import *
 from utils import estimate_context_tokens
 from rag_agent.reranker import get_reranker
@@ -33,26 +33,127 @@ def summarize_history(state: State, llm):
         conversation += f"{role}: {msg.content}\n"
 
     summary_response = llm.with_config(temperature=0.2).invoke([SystemMessage(content=get_conversation_summary_prompt()), HumanMessage(content=conversation)])
-    return {"conversation_summary": summary_response.content, "agent_answers": [{"__reset__": True}]}
+    return {
+        "conversation_summary": summary_response.content,
+        "task_results": [{"__reset__": True}],
+        "agent_answers": [{"__reset__": True}],
+    }
 
-def rewrite_query(state: State, llm):
+def _task_dicts_from_intent(response: IntentAnalysis, fallback_query: str) -> list[dict]:
+    if response.tasks:
+        return [task.model_dump() for task in response.tasks[:3]]
+    query = response.normalized_query or fallback_query
+    return [{
+        "task_id": "task_1",
+        "task_type": "rag_qa",
+        "query": query,
+        "original_query": response.original_query or fallback_query,
+        "context": response.follow_up_context or "",
+        "constraints": {},
+    }]
+
+def _parse_intent_analysis(content: str, fallback_query: str) -> IntentAnalysis:
+    try:
+        raw = json.loads(content)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", content, re.DOTALL)
+        raw = json.loads(match.group()) if match else {}
+
+    intent_type = raw.get("intent_type") or "clarification"
+    if intent_type not in {"rag_qa", "clarification", "chitchat", "follow_up"}:
+        intent_type = "clarification"
+
+    tasks = raw.get("tasks") or []
+    if not isinstance(tasks, list):
+        tasks = []
+
+    return IntentAnalysis(
+        intent_type=intent_type,
+        is_clear=bool(raw.get("is_clear", False)),
+        original_query=str(raw.get("original_query") or fallback_query),
+        normalized_query=str(raw.get("normalized_query") or fallback_query),
+        clarification_needed=str(raw.get("clarification_needed") or "").strip(),
+        follow_up_context=str(raw.get("follow_up_context") or "").strip(),
+        tasks=tasks,
+    )
+
+def recognize_intent(state: State, llm):
     last_message = state["messages"][-1]
     conversation_summary = state.get("conversation_summary", "")
 
     context_section = (f"Conversation Context:\n{conversation_summary}\n" if conversation_summary.strip() else "") + f"User Query:\n{last_message.content}\n"
 
-    llm_with_structure = llm.with_config(temperature=0.1).with_structured_output(QueryAnalysis)
-    response = llm_with_structure.invoke([SystemMessage(content=get_rewrite_query_prompt()), HumanMessage(content=context_section)])
+    response_message = llm.with_config(temperature=0.1).invoke([SystemMessage(content=get_intent_recognition_prompt()), HumanMessage(content=context_section)])
+    response = _parse_intent_analysis(str(response_message.content), last_message.content)
+    intent_type = response.intent_type
+    is_rag_intent = intent_type in ("rag_qa", "follow_up") and response.is_clear
 
-    if response.questions and response.is_clear:
+    if is_rag_intent:
+        tasks = _task_dicts_from_intent(response, last_message.content)
         delete_all = [RemoveMessage(id=m.id) for m in state["messages"] if not isinstance(m, SystemMessage)]
-        return {"questionIsClear": True, "messages": delete_all, "originalQuery": last_message.content, "rewrittenQuestions": response.questions}
+        return {
+            "questionIsClear": True,
+            "intent_type": intent_type,
+            "messages": delete_all,
+            "originalQuery": last_message.content,
+            "normalized_query": response.normalized_query,
+            "rewrittenQuestions": [task["query"] for task in tasks],
+            "task_plan": tasks,
+            "task_results": [{"__reset__": True}],
+            "agent_answers": [{"__reset__": True}],
+        }
+
+    if intent_type == "chitchat" and response.is_clear:
+        return {
+            "questionIsClear": True,
+            "intent_type": "chitchat",
+            "originalQuery": last_message.content,
+            "normalized_query": response.normalized_query or last_message.content,
+            "task_plan": [],
+            "task_results": [{"__reset__": True}],
+            "agent_answers": [{"__reset__": True}],
+        }
 
     clarification = response.clarification_needed if response.clarification_needed and len(response.clarification_needed.strip()) > 10 else "I need more information to understand your question."
-    return {"questionIsClear": False, "messages": [AIMessage(content=clarification)]}
+    return {
+        "questionIsClear": False,
+        "intent_type": "clarification",
+        "clarification_needed": clarification,
+        "messages": [AIMessage(content=clarification)],
+        "task_plan": [],
+    }
+
+def rewrite_query(state: State, llm):
+    return recognize_intent(state, llm)
 
 def request_clarification(state: State):
     return {}
+
+def plan_rag_tasks(state: State):
+    task_plan = state.get("task_plan") or []
+    if task_plan:
+        return {
+            "rewrittenQuestions": [task.get("query", "") for task in task_plan if task.get("query")],
+        }
+
+    query = state.get("normalized_query") or state.get("originalQuery") or ""
+    if not query:
+        return {"task_plan": []}
+
+    task = {
+        "task_id": "task_1",
+        "task_type": "rag_qa",
+        "query": query,
+        "original_query": state.get("originalQuery", query),
+        "context": state.get("conversation_summary", ""),
+        "constraints": {},
+    }
+    return {"task_plan": [task], "rewrittenQuestions": [query]}
+
+def chitchat_response(state: State, llm):
+    query = state.get("normalized_query") or state.get("originalQuery") or state["messages"][-1].content
+    response = llm.invoke([SystemMessage(content=get_chitchat_prompt()), HumanMessage(content=query)])
+    return {"messages": [AIMessage(content=response.content)]}
 
 def _parse_child_chunk_output(text: str) -> list[dict]:
     if not text:
@@ -229,23 +330,42 @@ def rerank_search_results(state: AgentState):
 
     return {"messages": updates} if updates else {}
 
-# --- Agent Nodes ---
-def orchestrator(state: AgentState, llm_with_tools):
+# --- Task Executor Nodes ---
+def task_executor(state: AgentState, llm_with_tools):
     context_summary = state.get("context_summary", "").strip()
-    sys_msg = SystemMessage(content=get_orchestrator_prompt())
+    task_context = state.get("task_context", "").strip()
+    sys_msg = SystemMessage(content=get_task_executor_prompt())
     summary_injection = (
         [HumanMessage(content=f"[COMPRESSED CONTEXT FROM PRIOR RESEARCH]\n\n{context_summary}")]
         if context_summary else []
     )
+    task_context_injection = (
+        [HumanMessage(content=f"[TASK CONTEXT]\n\n{task_context}")]
+        if task_context else []
+    )
     if not state.get("messages"):
         human_msg = HumanMessage(content=state["question"])
-        force_search = HumanMessage(content="YOU MUST CALL 'search_child_chunks' AS THE FIRST STEP TO ANSWER THIS QUESTION.")
-        response = llm_with_tools.invoke([sys_msg] + summary_injection + [human_msg, force_search])
-        return {"messages": [human_msg, response], "tool_call_count": len(response.tool_calls or []), "iteration_count": 1}
+        force_search = HumanMessage(content="YOU MUST CALL `rag_research` before answering this task.")
+        response = llm_with_tools.invoke([sys_msg] + summary_injection + task_context_injection + [human_msg, force_search])
+        tool_calls = response.tool_calls or []
+        return {
+            "messages": [human_msg, response],
+            "tool_call_count": len(tool_calls),
+            "search_call_count": sum(1 for call in tool_calls if call.get("name") == "rag_research"),
+            "iteration_count": 1,
+        }
 
-    response = llm_with_tools.invoke([sys_msg] + summary_injection + state["messages"])
+    response = llm_with_tools.invoke([sys_msg] + summary_injection + task_context_injection + state["messages"])
     tool_calls = response.tool_calls if hasattr(response, "tool_calls") else []
-    return {"messages": [response], "tool_call_count": len(tool_calls) if tool_calls else 0, "iteration_count": 1}
+    return {
+        "messages": [response],
+        "tool_call_count": len(tool_calls) if tool_calls else 0,
+        "search_call_count": sum(1 for call in tool_calls if call.get("name") == "rag_research"),
+        "iteration_count": 1,
+    }
+
+def orchestrator(state: AgentState, llm_with_tools):
+    return task_executor(state, llm_with_tools)
 
 def fallback_response(state: AgentState, llm):
     seen = set()
@@ -361,8 +481,23 @@ def collect_answer(state: AgentState):
     last_message = state["messages"][-1]
     is_valid = isinstance(last_message, AIMessage) and last_message.content and not last_message.tool_calls
     answer = last_message.content if is_valid else "Unable to generate an answer."
+    task_result = {
+        "index": state["question_index"],
+        "task_id": state.get("task_id") or f"task_{state['question_index'] + 1}",
+        "question": state["question"],
+        "answer": answer,
+        "diagnostics": {
+            "answer_is_satisfactory": state.get("answer_is_satisfactory", False),
+            "answer_evaluation_count": state.get("answer_evaluation_count", 0),
+            "search_call_count": state.get("search_call_count", 0),
+            "parent_retrieve_call_count": state.get("parent_retrieve_call_count", 0),
+            "tool_call_count": state.get("tool_call_count", 0),
+            "iteration_count": state.get("iteration_count", 0),
+        },
+    }
     return {
         "final_answer": answer,
+        "task_results": [task_result],
         "agent_answers": [{"index": state["question_index"], "question": state["question"], "answer": answer}]
     }
 
@@ -407,7 +542,7 @@ def evaluate_answer(state: AgentState, llm):
         f"Critique:\n{evaluation.critique}\n\n"
         f"Missing information:\n{missing}\n\n"
         f"Suggested follow-up searches:\n{suggested_queries}\n\n"
-        "Next step: retrieve the missing information with search_child_chunks or retrieve_parent_chunks, then produce a revised final answer. "
+        "Next step: call rag_research with a focused query for the missing information, then produce a revised final answer. "
         "Do not return the same answer unless the new retrieval proves the missing information is unavailable."
     )
     return {
@@ -432,10 +567,11 @@ def _parse_answer_evaluation(content: str) -> AnswerEvaluation:
 # --- End of Agent Nodes---
 
 def aggregate_answers(state: State, llm):
-    if not state.get("agent_answers"):
+    answers = state.get("task_results") or state.get("agent_answers") or []
+    if not answers:
         return {"messages": [AIMessage(content="No answers were generated.")]}
 
-    sorted_answers = sorted(state["agent_answers"], key=lambda x: x["index"])
+    sorted_answers = sorted(answers, key=lambda x: x["index"])
 
     formatted_answers = ""
     for i, ans in enumerate(sorted_answers, start=1):

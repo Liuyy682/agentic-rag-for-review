@@ -6,7 +6,7 @@ PROJECT_DIR = Path(__file__).resolve().parents[1] / "project"
 sys.path.insert(0, str(PROJECT_DIR))
 
 from langchain_core.documents import Document
-from rag_agent.retrieval_fusion import get_doc_key, reciprocal_rank_fusion
+from retrieval.fusion import get_doc_key, reciprocal_rank_fusion
 
 
 def doc(chunk_id, content=None, parent_id="p1"):

@@ -1,5 +1,5 @@
 import uuid
-from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 import config
 from db.vector_db_manager import VectorDbManager
 from db.parent_store_manager import ParentStoreManager
@@ -24,7 +24,15 @@ class RAGSystem:
         self.vector_db.create_collection(self.collection_name)
         collection = self.vector_db.get_collection(self.collection_name)
 
-        llm = ChatOllama(model=config.LLM_MODEL, temperature=config.LLM_TEMPERATURE)
+        if not config.DEEPSEEK_API_KEY:
+            raise RuntimeError("Set DEEPSEEK_API_KEY in project/.env before starting the RAG app.")
+
+        llm = ChatOpenAI(
+            model=config.LLM_MODEL,
+            temperature=config.LLM_TEMPERATURE,
+            api_key=config.DEEPSEEK_API_KEY,
+            base_url=config.DEEPSEEK_BASE_URL,
+        )
         tools = ToolFactory(
             collection,
             vector_db=self.vector_db,

@@ -3,6 +3,32 @@ from langgraph.types import Send
 from .graph_state import State, AgentState
 from config import MAX_ANSWER_EVALUATION_RETRIES, MAX_ITERATIONS, MAX_TOOL_CALLS
 
+def route_after_intent(state: State) -> Literal["request_clarification", "chitchat_response", "plan_rag_tasks"]:
+    intent_type = state.get("intent_type", "")
+    if intent_type == "chitchat":
+        return "chitchat_response"
+    if intent_type == "clarification" or not state.get("questionIsClear", False):
+        return "request_clarification"
+    return "plan_rag_tasks"
+
+def route_after_task_planning(state: State):
+    return [
+        Send(
+            "task_executor",
+            {
+                "task_id": task.get("task_id") or f"task_{idx + 1}",
+                "task_type": task.get("task_type", "rag_qa"),
+                "question": task.get("query", ""),
+                "question_index": idx,
+                "original_query": task.get("original_query", state.get("originalQuery", "")),
+                "task_context": task.get("context", ""),
+                "messages": [],
+            },
+        )
+        for idx, task in enumerate(state.get("task_plan", []))
+        if task.get("query")
+    ]
+
 def route_after_rewrite(state: State) -> Literal["request_clarification", "agent"]:
     if not state.get("questionIsClear", False):
         return "request_clarification"
@@ -12,7 +38,7 @@ def route_after_rewrite(state: State) -> Literal["request_clarification", "agent
                 for idx, query in enumerate(state["rewrittenQuestions"])
             ]
     
-def route_after_orchestrator_call(state: AgentState) -> Literal["tools", "fallback_response", "collect_answer"]:
+def route_after_task_executor_call(state: AgentState) -> Literal["tools", "fallback_response", "collect_answer"]:
     iteration = state.get("iteration_count", 0)
     tool_count = state.get("tool_call_count", 0)
 
@@ -27,7 +53,10 @@ def route_after_orchestrator_call(state: AgentState) -> Literal["tools", "fallba
     
     return "tools"
 
-def route_after_answer_evaluation(state: AgentState) -> Literal["orchestrator", "__end__"]:
+def route_after_orchestrator_call(state: AgentState) -> Literal["tools", "fallback_response", "collect_answer"]:
+    return route_after_task_executor_call(state)
+
+def route_after_answer_evaluation(state: AgentState) -> Literal["task_executor", "__end__"]:
     if state.get("answer_is_satisfactory", False):
         return "__end__"
 
@@ -37,4 +66,4 @@ def route_after_answer_evaluation(state: AgentState) -> Literal["orchestrator", 
     if state.get("iteration_count", 0) >= MAX_ITERATIONS or state.get("tool_call_count", 0) > MAX_TOOL_CALLS:
         return "__end__"
 
-    return "orchestrator"
+    return "task_executor"

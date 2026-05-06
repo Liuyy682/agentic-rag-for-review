@@ -18,6 +18,51 @@ Output:
 - If no meaningful topics exist, return an empty string.
 """
 
+def get_intent_recognition_prompt() -> str:
+    return """You are an expert intent recognizer and task planner for a RAG assistant.
+
+Your task is to classify the current user message and produce a minimal execution plan.
+
+Supported intent_type values:
+- rag_qa: the user asks a clear question that should be answered from documents.
+- clarification: the user message is too vague, ambiguous, or missing a referent.
+- chitchat: the user is greeting, thanking, or making casual conversation that does not require retrieval.
+- follow_up: the user asks a context-dependent follow-up. Resolve it using conversation_summary when possible.
+
+Rules:
+1. If a follow-up can be resolved from conversation_summary, set intent_type to follow_up, set is_clear to true, and include rag_qa tasks with self-contained queries.
+2. If a follow-up cannot be resolved, set intent_type to clarification and ask a concise clarification question.
+3. For rag_qa and resolved follow_up, create 1-3 self-contained tasks. Do not invent facts or expand beyond the user's request.
+4. For chitchat, do not create tasks.
+5. Do not use an unsupported category.
+6. Keep normalized_query close to the user's meaning and include only necessary conversation context.
+
+Input:
+- conversation_summary: concise prior conversation context
+- current_query: the user's latest message
+
+Output:
+- Return JSON only, with exactly this shape:
+{
+  "intent_type": "rag_qa" | "clarification" | "chitchat" | "follow_up",
+  "is_clear": true or false,
+  "original_query": "the original user message",
+  "normalized_query": "self-contained query or casual message",
+  "clarification_needed": "question to ask, or empty string",
+  "follow_up_context": "context used to resolve a follow-up, or empty string",
+  "tasks": [
+    {
+      "task_id": "task_1",
+      "task_type": "rag_qa",
+      "query": "self-contained retrieval query",
+      "original_query": "the original user message",
+      "context": "minimal needed conversation context",
+      "constraints": {}
+    }
+  ]
+}
+"""
+
 def get_rewrite_query_prompt() -> str:
     return """You are an expert query analyst and rewriter.
 
@@ -55,29 +100,32 @@ Output:
 - One or more rewritten, self-contained queries suitable for document retrieval
 """
 
-def get_orchestrator_prompt() -> str:
-    return """You are an expert retrieval-augmented assistant.
+def get_task_executor_prompt() -> str:
+    return """You are a task execution assistant for one RAG task.
 
-Your task is to act as a researcher: search documents first, analyze the data, and then provide a comprehensive answer using ONLY the retrieved information.
+Your task is to answer the task query using ONLY evidence returned by the `rag_research` tool.
 
 Rules:
-1. You MUST call 'search_child_chunks' before answering, unless the [COMPRESSED CONTEXT FROM PRIOR RESEARCH] already contains sufficient information.
-2. Ground every claim in the retrieved documents. If context is insufficient, state what is missing rather than filling gaps with assumptions.
-3. If no relevant documents are found, broaden or rephrase the query and search again. Repeat until satisfied or the operation limit is reached.
+1. You MUST call `rag_research` before answering unless prior tool results in the current task already contain enough evidence.
+2. Ground every factual claim in the returned evidence. If evidence is insufficient, say what is missing.
+3. If the tool result has gaps, call `rag_research` again with a focused query. Preserve useful parent IDs with `keep_parent_ids` and avoid repeated weak evidence with `exclude_parent_ids`.
+4. Do not call low-level retrieval tools. Use only `rag_research`.
+5. Stop retrying when the evidence is sufficient or when the operation limit is reached.
 
-Compressed Memory:
-When [COMPRESSED CONTEXT FROM PRIOR RESEARCH] is present —
-- Queries already listed: do not repeat them.
-- Parent IDs already listed: do not call `retrieve_parent_chunks` on them again.
-- Use it to identify what is still missing before searching further.
+Output:
+- Provide the final answer for this task only.
+- Conclude with "---\n**Sources:**\n" followed by unique source file names when sources are available.
+- Do not expose internal retry reasoning.
+"""
 
-Workflow:
-1. Check the compressed context. Identify what has already been retrieved and what is still missing.
-2. Search for 5-7 relevant excerpts using 'search_child_chunks' ONLY for uncovered aspects.
-3. If NONE are relevant, apply rule 3 immediately.
-4. For each relevant but fragmented excerpt, call 'retrieve_parent_chunks' ONE BY ONE — only for IDs not in the compressed context. Never retrieve the same ID twice.
-5. Once context is complete, provide a detailed answer omitting no relevant facts.
-6. Conclude with "---\n**Sources:**\n" followed by the unique file names.
+def get_orchestrator_prompt() -> str:
+    return get_task_executor_prompt()
+
+def get_chitchat_prompt() -> str:
+    return """You are a concise, friendly assistant.
+
+Respond naturally to the user's casual message without using retrieval tools.
+Do not mention documents, tools, or internal routing.
 """
 
 def get_fallback_response_prompt() -> str:

@@ -1,0 +1,5 @@
+metric,score
+context_precision,0.471044
+context_recall,0.791667
+faithfulness,0.935689
+rows,50.000000

@@ -3,7 +3,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
-from rag_agent.retrieval_fusion import reciprocal_rank_fusion
+from retrieval.fusion import reciprocal_rank_fusion
 
 class VectorDbManager:
     __client: QdrantClient

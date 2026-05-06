@@ -11,6 +11,7 @@ if str(PROJECT_DIR) not in sys.path:
 
 import config
 from db.vector_db_manager import VectorDbManager
+from db.parent_store_manager import ParentStoreManager
 from evaluation.data import EvalQuestion
 from evaluation.io import config_snapshot, make_run_id, write_jsonl, write_metrics_csv
 from evaluation.llm_config import answer_model as resolve_answer_model
@@ -62,11 +63,20 @@ def run_ragbench_local_rag_eval(
     questions = [_context_row_to_eval_question(row, index + 1) for index, row in enumerate(rows)]
 
     config.QDRANT_DB_PATH = str(run_dir / "qdrant_db")
+    config.PARENT_STORE_PATH = str(run_dir / "parent_store")
+    parent_store_dir = Path(config.PARENT_STORE_PATH)
+    if parent_store_dir.exists():
+        shutil.rmtree(parent_store_dir)
     vector_db = VectorDbManager()
     vector_db.delete_collection(collection_name)
     vector_db.create_collection(collection_name)
     collection = vector_db.get_collection(collection_name)
-    collection.add_documents(_ragbench_documents(rows))
+    ragbench_docs = _ragbench_documents(rows)
+    collection.add_documents(ragbench_docs)
+    ParentStoreManager().save_many([
+        (str(doc.metadata["parent_id"]), doc)
+        for doc in ragbench_docs
+    ])
 
     retrieval_rows = []
     ragas_outputs = []
@@ -165,7 +175,7 @@ def run_ragbench_local_rag_eval(
             "reranker": config.RERANKER_MODEL if config.RERANKER_ENABLED else None,
             "reranker_top_n": config.RERANKER_TOP_N,
             "reranker_final_top_k": config.RERANKER_FINAL_TOP_K,
-            "answer_source": "generated" if generate_answers else "reference",
+            "answer_source": "agent_graph" if use_agent_graph and generate_answers else ("generated" if generate_answers else "reference"),
             "answer_model": resolved_answer_model,
             "use_agent_graph": use_agent_graph,
         }
@@ -336,6 +346,7 @@ class _AgentGraphAnswerGenerator:
         )
         answer = str(state.get("final_answer") or "").strip()
         contexts = _tool_contexts_from_state(state) or fallback_contexts
+        rag_research_diagnostics = _rag_research_diagnostics_from_state(state)
         search_calls = int(state.get("search_call_count") or 0)
         evaluation_count = int(state.get("answer_evaluation_count") or 0)
         diagnostics = {
@@ -344,7 +355,10 @@ class _AgentGraphAnswerGenerator:
             "answer_revision_count": max(evaluation_count - 1, 0),
             "search_call_count": search_calls,
             "retry_search_count": max(search_calls - 1, 0),
-            "parent_retrieve_call_count": int(state.get("parent_retrieve_call_count") or 0),
+            "rag_research_call_count": rag_research_diagnostics["rag_research_call_count"],
+            "parent_retrieve_call_count": rag_research_diagnostics["parent_id_count"],
+            "rag_research_context_count": rag_research_diagnostics["context_count"],
+            "rag_research_gap_count": rag_research_diagnostics["gap_count"],
             "tool_call_count": int(state.get("tool_call_count") or 0),
             "iteration_count": int(state.get("iteration_count") or 0),
         }
@@ -375,10 +389,49 @@ def _tool_contexts_from_state(state: Dict[str, Any]) -> List[str]:
     contexts: List[str] = []
     seen = set()
     for message in state.get("messages", []):
-        if isinstance(message, ToolMessage) and message.content and message.content not in seen:
+        if not isinstance(message, ToolMessage) or not message.content:
+            continue
+
+        if getattr(message, "name", "") == "rag_research":
+            parsed = _parse_rag_research_content(str(message.content))
+            for item in parsed.get("contexts", []):
+                content = str(item.get("content") or "").strip()
+                if content and content not in seen:
+                    seen.add(content)
+                    contexts.append(content)
+            continue
+
+        if message.content not in seen:
             seen.add(message.content)
             contexts.append(str(message.content))
     return contexts
+
+
+def _parse_rag_research_content(content: str) -> Dict[str, Any]:
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        return {}
+
+
+def _rag_research_diagnostics_from_state(state: Dict[str, Any]) -> Dict[str, int]:
+    result = {
+        "rag_research_call_count": 0,
+        "parent_id_count": 0,
+        "context_count": 0,
+        "gap_count": 0,
+    }
+    seen_parent_ids = set()
+    for message in state.get("messages", []):
+        if not isinstance(message, ToolMessage) or getattr(message, "name", "") != "rag_research":
+            continue
+        parsed = _parse_rag_research_content(str(message.content or ""))
+        result["rag_research_call_count"] += 1
+        result["context_count"] += len(parsed.get("contexts") or [])
+        result["gap_count"] += len(parsed.get("gaps") or [])
+        seen_parent_ids.update(parsed.get("parent_ids") or [])
+    result["parent_id_count"] = len(seen_parent_ids)
+    return result
 
 
 def _summarize_agent_diagnostics(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -387,6 +440,9 @@ def _summarize_agent_diagnostics(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     return {
         "rows": len(rows),
         "total_search_calls": sum(int(row.get("search_call_count") or 0) for row in rows),
+        "total_rag_research_calls": sum(int(row.get("rag_research_call_count") or 0) for row in rows),
+        "total_rag_research_contexts": sum(int(row.get("rag_research_context_count") or 0) for row in rows),
+        "total_rag_research_gaps": sum(int(row.get("rag_research_gap_count") or 0) for row in rows),
         "total_retry_searches": sum(int(row.get("retry_search_count") or 0) for row in rows),
         "questions_with_retry_search": sum(1 for row in rows if int(row.get("retry_search_count") or 0) > 0),
         "total_answer_evaluations": sum(int(row.get("answer_evaluation_count") or 0) for row in rows),

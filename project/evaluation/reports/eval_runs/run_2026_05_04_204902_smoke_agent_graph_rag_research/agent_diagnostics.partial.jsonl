@@ -1,0 +1,1 @@
+{"question_id": "ragbench_covidqa_test_1421", "answer_is_satisfactory": false, "answer_evaluation_count": 2, "answer_revision_count": 1, "search_call_count": 6, "retry_search_count": 5, "rag_research_call_count": 6, "parent_retrieve_call_count": 4, "rag_research_context_count": 24, "rag_research_gap_count": 0, "tool_call_count": 6, "iteration_count": 8}

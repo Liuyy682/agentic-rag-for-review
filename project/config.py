@@ -1,7 +1,12 @@
 import os
+from dotenv import load_dotenv
 
 # --- Directory Configuration ---
 _BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+_PROJECT_DIR = os.path.dirname(__file__)
+
+load_dotenv(os.path.join(_BASE_DIR, ".env"))
+load_dotenv(os.path.join(_PROJECT_DIR, ".env"), override=True)
 
 HF_CACHE_DIR = os.path.join(_BASE_DIR, ".cache", "huggingface")
 _DEFAULT_HF_HOME = os.path.expanduser("~/.cache/huggingface")
@@ -40,7 +45,9 @@ RERANKER_SCORE_THRESHOLD = None
 # --- Model Configuration ---
 DENSE_MODEL = "sentence-transformers/all-mpnet-base-v2"
 SPARSE_MODEL = "Qdrant/bm25"
-LLM_MODEL = "gpt-4o"
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+LLM_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
 LLM_TEMPERATURE = 0
 
 # --- Agent Configuration ---
