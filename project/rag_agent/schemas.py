@@ -80,6 +80,10 @@ class TaskResult(BaseModel):
     task_id: str = Field(description="Task identifier.")
     question: str = Field(description="Executed task query.")
     answer: str = Field(description="Final task answer.")
+    answer_mode: Literal["rag_qa", "knowledge_fallback"] = Field(default="rag_qa")
+    used_knowledge_base: bool = Field(default=True)
+    fallback_reason: str = Field(default="")
+    sources: List[str] = Field(default_factory=list)
     diagnostics: Dict[str, object] = Field(default_factory=dict)
 
 class AnswerEvaluation(BaseModel):

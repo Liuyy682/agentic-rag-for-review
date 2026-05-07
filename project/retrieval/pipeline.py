@@ -139,12 +139,14 @@ class RetrievalPipeline:
             parent_id = parent.get("parent_id", "")
             if not parent_id or parent_id in seen:
                 continue
+            fallback = fallback_by_parent.get(parent_id)
+            fallback_context = self.context_from_child_doc(fallback) if fallback else {}
             seen.add(parent_id)
             contexts.append({
                 "parent_id": parent_id,
                 "source": parent.get("metadata", {}).get("source", "unknown"),
                 "content": parent.get("content", "").strip(),
-                "score": None,
+                "score": fallback_context.get("score"),
             })
 
         for parent_id in parent_ids:
@@ -183,6 +185,12 @@ class RetrievalPipeline:
             ]
             reranked_docs = self.rerank_child_documents(effective_query, child_docs)
             diagnostics["reranked_contexts"] = len(reranked_docs)
+            rerank_scores = [
+                float((doc.metadata or {}).get("rerank_score"))
+                for doc in reranked_docs
+                if (doc.metadata or {}).get("rerank_score") is not None
+            ]
+            diagnostics["best_rerank_score"] = max(rerank_scores) if rerank_scores else None
 
             parent_ids = []
             for parent_id in keep_parent_ids:
@@ -196,8 +204,15 @@ class RetrievalPipeline:
             contexts = self.parent_contexts(parent_ids, reranked_docs)
             sources = sorted({ctx["source"] for ctx in contexts if ctx.get("source")})
             gaps = [] if contexts else ["No relevant document context was retrieved."]
+            if contexts:
+                evidence_status = "sufficient"
+            elif child_docs and config.RERANKER_ENABLED and config.RERANKER_SCORE_THRESHOLD is not None:
+                evidence_status = "low_score"
+            else:
+                evidence_status = "insufficient"
             diagnostics["parent_ids"] = len(parent_ids)
             diagnostics["contexts"] = len(contexts)
+            diagnostics["evidence_status"] = evidence_status
 
             return json.dumps({
                 "query": query,
@@ -210,6 +225,7 @@ class RetrievalPipeline:
             }, ensure_ascii=False)
         except Exception as e:
             diagnostics["error"] = str(e)
+            diagnostics["evidence_status"] = "error"
             return json.dumps({
                 "query": query,
                 "focus": focus or "",

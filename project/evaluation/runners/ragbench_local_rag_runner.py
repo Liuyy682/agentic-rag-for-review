@@ -351,6 +351,11 @@ class _AgentGraphAnswerGenerator:
         evaluation_count = int(state.get("answer_evaluation_count") or 0)
         diagnostics = {
             "answer_is_satisfactory": bool(state.get("answer_is_satisfactory", False)),
+            "answer_mode": state.get("answer_mode", "rag_qa"),
+            "fallback_triggered": bool(state.get("fallback_triggered", False)),
+            "fallback_reason": state.get("fallback_reason", ""),
+            "retrieval_evidence_status": state.get("retrieval_evidence_status", ""),
+            "best_rerank_score": state.get("best_rerank_score"),
             "answer_evaluation_count": evaluation_count,
             "answer_revision_count": max(evaluation_count - 1, 0),
             "search_call_count": search_calls,
@@ -448,6 +453,7 @@ def _summarize_agent_diagnostics(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
         "total_answer_evaluations": sum(int(row.get("answer_evaluation_count") or 0) for row in rows),
         "total_answer_revisions": sum(int(row.get("answer_revision_count") or 0) for row in rows),
         "questions_with_answer_revision": sum(1 for row in rows if int(row.get("answer_revision_count") or 0) > 0),
+        "questions_with_knowledge_fallback": sum(1 for row in rows if row.get("answer_mode") == "knowledge_fallback"),
     }
 
 

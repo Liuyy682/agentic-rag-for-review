@@ -9,6 +9,9 @@ class DocumentManager:
         self.rag_system = rag_system
         self.markdown_dir = Path(config.MARKDOWN_DIR)
         self.markdown_dir.mkdir(parents=True, exist_ok=True)
+        Path(config.MARKDOWN_CLEANED_DIR).mkdir(parents=True, exist_ok=True)
+        Path(config.MARKDOWN_CLEANING_LOG_DIR).mkdir(parents=True, exist_ok=True)
+        Path(config.MARKDOWN_CLEANING_DIFF_DIR).mkdir(parents=True, exist_ok=True)
         
     def add_documents(self, document_paths, progress_callback=None):
         if not document_paths:
@@ -65,6 +68,9 @@ class DocumentManager:
     def clear_all(self):
         self.markdown_dir.mkdir(parents=True, exist_ok=True)
         clear_directory_contents(self.markdown_dir)
+        clear_directory_contents(Path(config.MARKDOWN_CLEANED_DIR))
+        clear_directory_contents(Path(config.MARKDOWN_CLEANING_LOG_DIR))
+        clear_directory_contents(Path(config.MARKDOWN_CLEANING_DIFF_DIR))
         
         self.rag_system.parent_store.clear_store()
         self.rag_system.vector_db.delete_collection(self.rag_system.collection_name)

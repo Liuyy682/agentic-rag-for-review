@@ -1,6 +1,9 @@
 .DS_Store
 qdrant_db/
 markdown_docs/
+markdown_docs_cleaned/
+markdown_cleaning_diffs/
+markdown_cleaning_logs/
 parent_store/
 docs/
 __pycache__/

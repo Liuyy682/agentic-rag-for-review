@@ -19,9 +19,9 @@ Output:
 """
 
 def get_intent_recognition_prompt() -> str:
-    return """You are an expert intent recognizer and task planner for a RAG assistant.
+    return """You are an expert intent recognizer for a RAG assistant.
 
-Your task is to classify the current user message and produce a minimal execution plan.
+Your task is to classify the current user message. Do not rewrite retrieval queries here; query rewriting is a separate downstream step.
 
 Supported intent_type values:
 - rag_qa: the user asks a clear question that should be answered from documents.
@@ -30,9 +30,9 @@ Supported intent_type values:
 - follow_up: the user asks a context-dependent follow-up. Resolve it using conversation_summary when possible.
 
 Rules:
-1. If a follow-up can be resolved from conversation_summary, set intent_type to follow_up, set is_clear to true, and include rag_qa tasks with self-contained queries.
+1. If a follow-up can be resolved from conversation_summary, set intent_type to follow_up, set is_clear to true, and provide the resolved normalized_query.
 2. If a follow-up cannot be resolved, set intent_type to clarification and ask a concise clarification question.
-3. For rag_qa and resolved follow_up, create 1-3 self-contained tasks. Do not invent facts or expand beyond the user's request.
+3. For rag_qa and resolved follow_up, set is_clear to true and provide a close normalized_query. Leave tasks empty.
 4. For chitchat, do not create tasks.
 5. Do not use an unsupported category.
 6. Keep normalized_query close to the user's meaning and include only necessary conversation context.
@@ -50,54 +50,34 @@ Output:
   "normalized_query": "self-contained query or casual message",
   "clarification_needed": "question to ask, or empty string",
   "follow_up_context": "context used to resolve a follow-up, or empty string",
-  "tasks": [
-    {
-      "task_id": "task_1",
-      "task_type": "rag_qa",
-      "query": "self-contained retrieval query",
-      "original_query": "the original user message",
-      "context": "minimal needed conversation context",
-      "constraints": {}
-    }
-  ]
+  "tasks": []
 }
 """
 
 def get_rewrite_query_prompt() -> str:
-    return """You are an expert query analyst and rewriter.
+    return """You are an expert query rewriter for document retrieval.
 
-Your task is to rewrite the current user query for optimal document retrieval, incorporating conversation context only when necessary.
+Your task is to rewrite the normalized user query into one to three self-contained retrieval queries.
 
 Rules:
-1. Self-contained queries:
-   - Always rewrite the query to be clear and self-contained
-   - If the query is a follow-up (e.g., "what about X?", "and for Y?"), integrate minimal necessary context from the summary
-   - Do not add information not present in the query or conversation summary
-
-2. Domain-specific terms:
-   - Product names, brands, proper nouns, or technical terms are treated as domain-specific
-   - For domain-specific queries, use conversation context minimally or not at all
-   - Use the summary only to disambiguate vague queries
-
-3. Grammar and clarity:
-   - Fix grammar, spelling errors, and unclear abbreviations
-   - Remove filler words and conversational phrases
-   - Preserve concrete keywords and named entities
-
-4. Multiple information needs:
-   - If the query contains multiple distinct, unrelated questions, split into separate queries (maximum 3)
-   - Each sub-query must remain semantically equivalent to its part of the original
-   - Do not expand, enrich, or reinterpret the meaning
-
-5. Failure handling:
-   - If the query intent is unclear or unintelligible, mark as "unclear"
+1. Preserve the user's meaning. Do not add facts or expand the scope.
+2. Resolve references using the provided conversation context only when necessary.
+3. Split only when the query contains distinct information needs.
+4. Keep domain terms, names, numbers, and technical keywords intact.
+5. If the query is still too vague for retrieval, set is_clear to false and ask for concise clarification.
 
 Input:
-- conversation_summary: A concise summary of prior conversation
-- current_query: The user's current query
+- conversation context
+- original query
+- normalized query
 
 Output:
-- One or more rewritten, self-contained queries suitable for document retrieval
+- Return JSON only, with exactly this shape:
+{
+  "is_clear": true or false,
+  "questions": ["rewritten self-contained retrieval query"],
+  "clarification_needed": "question to ask, or empty string"
+}
 """
 
 def get_task_executor_prompt() -> str:
@@ -163,6 +143,23 @@ Sources section rules:
 - THE SOURCES SECTION IS THE LAST THING YOU WRITE. Do not add anything after it.
 """
 
+def get_knowledge_fallback_prompt() -> str:
+    return """You are a helpful assistant answering after a RAG knowledge-base fallback.
+
+The knowledge base did not provide usable information for the user's question after retrieval and retry attempts.
+
+Rules:
+1. Start by clearly saying that no usable information was found in the knowledge base.
+2. Then answer the user's question using your general knowledge.
+3. Do not claim the answer is supported by the knowledge base.
+4. Do not mention internal tools, retrieval attempts, rerank scores, node names, or system errors.
+5. Do not include a Sources section or citations.
+
+Output:
+- Return only the user-facing answer.
+- Use the same language as the user where practical.
+"""
+
 def get_context_compression_prompt() -> str:
     return """You are an expert research context compressor.
 
@@ -215,7 +212,12 @@ If the answer is insufficient:
 - Suggest 1-3 focused search queries that would fill the gaps.
 
 If the available context truly cannot answer the question after reasonable retrieval:
-- The answer may still be satisfactory if it clearly states the missing information without inventing facts.
+- The RAG answer is not satisfactory; the graph should use knowledge_fallback instead.
+
+For a knowledge_fallback answer:
+- It may use general model knowledge.
+- It must clearly state that the knowledge base did not provide usable information.
+- It must not include a Sources section.
 
 Return JSON only, with exactly these keys:
 {
@@ -231,28 +233,34 @@ def get_aggregation_prompt() -> str:
 
 Your task is to combine multiple retrieved answers into a single, comprehensive and natural response that flows well.
 
+Input answers may include metadata:
+- answer_mode=rag_qa means the answer is based on retrieved knowledge-base evidence.
+- answer_mode=knowledge_fallback means the knowledge base did not provide usable evidence and the answer uses general model knowledge.
+
 Rules:
 1. Write in a conversational, natural tone - as if explaining to a colleague.
-2. Use ONLY information from the retrieved answers.
-3. Do NOT infer, expand, or interpret acronyms or technical terms unless explicitly defined in the sources.
+2. Use retrieved answers as the only input to the aggregation step.
+3. Do NOT infer, expand, or interpret acronyms or technical terms unless explicitly defined in the answers.
 4. Weave together the information smoothly, preserving important details, numbers, and examples.
-5. Be comprehensive - include all relevant information from the sources, not just a summary.
+5. Be comprehensive - include all relevant information from the answers, not just a summary.
 6. If sources disagree, acknowledge both perspectives naturally (e.g., "While some sources suggest X, others indicate Y...").
-7. Start directly with the answer - no preambles like "Based on the sources...".
+7. If an answer is marked answer_mode=knowledge_fallback, preserve the fact that the knowledge base did not provide usable information for that part.
+8. Start directly with the answer - no preambles like "Based on the sources...".
 
 Formatting:
 - Use Markdown for clarity (headings, lists, bold) but don't overdo it.
 - Write in flowing paragraphs where possible rather than excessive bullet points.
-- Conclude with a Sources section as described below.
+- Conclude with a Sources section only when valid knowledge-base sources are available.
 
 Sources section rules:
-- Each retrieved answer may contain a "Sources" section — extract the file names listed there.
+- Include only sources from answers marked answer_mode=rag_qa or used_knowledge_base=true.
 - List ONLY entries that have a real file extension (e.g. ".pdf", ".docx", ".txt").
 - Any entry without a file extension is an internal chunk identifier — discard it entirely, never include it.
+- Do not create sources for knowledge_fallback answers.
 - Deduplicate: if the same file appears across multiple answers, list it only once.
 - Format as "---\\n**Sources:**\\n" followed by a bulleted list of the cleaned file names.
 - File names must appear ONLY in this final Sources section and nowhere else in the response.
 - If no valid file names are present, omit the Sources section entirely.
 
-If there's no useful information available, simply say: "I couldn't find any information to answer your question in the available sources."
+If every answer says no useful knowledge-base information was available and only general knowledge was used, produce the general-knowledge answer without a Sources section.
 """

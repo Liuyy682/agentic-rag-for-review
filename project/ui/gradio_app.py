@@ -1,17 +1,13 @@
 import gradio as gr
-from core.chat_interface import ChatInterface
-from core.document_manager import DocumentManager
-from core.rag_system import RAGSystem
+from app_services.rag_application import RagApplication
 import os
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets")
 
 def create_gradio_ui():
-    rag_system = RAGSystem()
-    rag_system.initialize()
-    
-    doc_manager = DocumentManager(rag_system)
-    chat_interface = ChatInterface(rag_system)
+    app = RagApplication.create()
+    doc_manager = app.document_manager
+    chat_interface = app.chat_interface
     
     def format_file_list():
         files = doc_manager.get_markdown_files()

@@ -37,6 +37,13 @@ class AgentState(MessagesState):
     kept_parent_ids: List[str] = []
     excluded_parent_ids: List[str] = []
     final_answer: str = ""
+    answer_mode: str = "rag_qa"
+    used_knowledge_base: bool = True
+    fallback_triggered: bool = False
+    fallback_reason: str = ""
+    retrieval_evidence_status: str = ""
+    best_rerank_score: float | None = None
+    retry_count_before_fallback: int = 0
     task_results: List[dict] = []
     agent_answers: List[dict] = []
     answer_is_satisfactory: bool = False

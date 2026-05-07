@@ -16,6 +16,9 @@ if not os.path.exists(_DEFAULT_HF_HOME) or not os.access(_DEFAULT_HF_HOME, os.W_
     os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", os.path.join(HF_CACHE_DIR, "sentence-transformers"))
 
 MARKDOWN_DIR = os.path.join(_BASE_DIR, "markdown_docs")
+MARKDOWN_CLEANED_DIR = os.path.join(_BASE_DIR, "markdown_docs_cleaned")
+MARKDOWN_CLEANING_LOG_DIR = os.path.join(_BASE_DIR, "markdown_cleaning_logs")
+MARKDOWN_CLEANING_DIFF_DIR = os.path.join(_BASE_DIR, "markdown_cleaning_diffs")
 PARENT_STORE_PATH = os.path.join(_BASE_DIR, "parent_store")
 QDRANT_DB_PATH = os.path.join(_BASE_DIR, "qdrant_db")
 
@@ -68,6 +71,12 @@ HEADERS_TO_SPLIT_ON = [
     ("##", "H2"),
     ("###", "H3")
 ]
+
+# --- Markdown Cleaning Configuration ---
+MARKDOWN_CLEANING_ENABLED = True
+HEADER_FOOTER_SCAN_LINES = 3
+MIN_REPEAT_PAGES = 3
+MIN_REPEAT_RATIO = 0.3
 
 # --- Langfuse Observability ---
 LANGFUSE_ENABLED = os.environ.get("LANGFUSE_ENABLED", "false").lower() == "true"
