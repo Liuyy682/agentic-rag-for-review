@@ -16,6 +16,15 @@ HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+\S")
 BULLET_RE = re.compile(r"^\s*[-*+]\s+\S")
 NUMBERED_LIST_RE = re.compile(r"^\s*\d+[.)]\s+\S")
 TABLE_RE = re.compile(r"^\s*\|.*\|\s*$")
+PICTURE_TEXT_BLOCK_RE = re.compile(
+    r"\*\*----- Start of picture text -----\*\*<br>\s*(.*?)\s*\*\*----- End of picture text -----\*\*<br>",
+    re.DOTALL,
+)
+IMAGE_ANALYSIS_BLOCK_RE = re.compile(
+    r"<!--\s*image-analysis:start\s*(.*?)\s*image-analysis:end\s*-->",
+    re.DOTALL,
+)
+MIN_RAG_SUMMARY_CHARS = 15
 
 
 @dataclass
@@ -81,6 +90,8 @@ def clean_markdown_text(
     candidates: list[CleanCandidate] = []
 
     for page in pages:
+        page.raw_text = _clean_page_blocks(page.raw_text, page, events, source_file)
+        page.raw_lines = page.raw_text.splitlines()
         page.slide_title = _extract_slide_title(page.raw_lines)
         cleaned_lines = []
         in_code_block = False
@@ -171,6 +182,147 @@ def clean_markdown_text(
         events=events,
         candidates=candidates,
     )
+
+
+def _clean_page_blocks(
+    page_text: str,
+    page: PageBlock,
+    events: list[CleanEvent],
+    source_file: str,
+) -> str:
+    page_text = _remove_low_value_picture_text_blocks(page_text, page, events, source_file)
+    page_text = _remove_low_quality_image_analysis_blocks(page_text, page, events, source_file)
+    return page_text
+
+
+def _remove_low_value_picture_text_blocks(
+    page_text: str,
+    page: PageBlock,
+    events: list[CleanEvent],
+    source_file: str,
+) -> str:
+    def replace(match: re.Match) -> str:
+        block_text = _html_breaks_to_text(match.group(1))
+        if not _is_low_value_picture_text(block_text):
+            return match.group(0)
+
+        event = CleanEvent(
+            source_file=source_file,
+            page_number=page.page_number,
+            text=_compact_text(block_text),
+            action="removed",
+            reason="low_value_picture_text",
+            confidence=0.9,
+        )
+        page.removed_items.append(event)
+        events.append(event)
+        return ""
+
+    return PICTURE_TEXT_BLOCK_RE.sub(replace, page_text)
+
+
+def _remove_low_quality_image_analysis_blocks(
+    page_text: str,
+    page: PageBlock,
+    events: list[CleanEvent],
+    source_file: str,
+) -> str:
+    def replace(match: re.Match) -> str:
+        block_text = match.group(1).strip()
+        reason = _image_analysis_quality_issue(block_text)
+        if reason is None:
+            return match.group(0)
+
+        event = CleanEvent(
+            source_file=source_file,
+            page_number=page.page_number,
+            text=_compact_text(block_text),
+            action="removed",
+            reason=reason,
+            confidence=0.9,
+        )
+        page.removed_items.append(event)
+        events.append(event)
+        return ""
+
+    return IMAGE_ANALYSIS_BLOCK_RE.sub(replace, page_text)
+
+
+def _image_analysis_quality_issue(block_text: str) -> str | None:
+    fields = _parse_image_analysis_fields(block_text)
+    if not fields.get("RAG_SUMMARY") or not fields.get("KEY_TERMS"):
+        return "incomplete_image_analysis"
+    summary = fields["RAG_SUMMARY"].strip()
+    if len(summary) < MIN_RAG_SUMMARY_CHARS:
+        return "low_quality_image_analysis"
+    return None
+
+
+def _parse_image_analysis_fields(block_text: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    current_key: str | None = None
+    for line in block_text.splitlines():
+        match = re.match(r"^(OCR|RAG_SUMMARY|KEY_TERMS):\s*(.*)$", line.strip())
+        if match:
+            current_key = match.group(1)
+            fields[current_key] = match.group(2).strip()
+        elif current_key and line.strip():
+            fields[current_key] = f"{fields[current_key]} {line.strip()}".strip()
+    return fields
+
+
+def _is_low_value_picture_text(block_text: str) -> bool:
+    lines = [line.strip() for line in block_text.splitlines() if line.strip()]
+    if not lines:
+        return True
+
+    normalized_lines = [_normalize_picture_text_line(line) for line in lines]
+    non_noise = [line for line in normalized_lines if line and not _is_picture_text_noise_line(line)]
+    if not non_noise:
+        return True
+
+    text = " ".join(non_noise)
+    if len(text) < 80 and not _has_data_like_picture_text(text):
+        return True
+    return False
+
+
+def _is_picture_text_noise_line(line: str) -> bool:
+    lower = line.lower()
+    noise_patterns = [
+        r"^college of computer science\b",
+        r"\bbjut\b",
+        r"^figure\s+\d+(?:\.\d+)?\b",
+        r"^page\s+\d+\b",
+    ]
+    return any(re.search(pattern, lower) for pattern in noise_patterns)
+
+
+def _has_data_like_picture_text(text: str) -> bool:
+    return bool(
+        re.search(r"\b(?:db|mhz|ghz|km|hz|mbps|next|acr|attenuation|frequency|horizon|loss)\b", text, re.IGNORECASE)
+        and re.search(r"\d", text)
+    )
+
+
+def _html_breaks_to_text(text: str) -> str:
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"\*\*", "", text)
+    return text
+
+
+def _normalize_picture_text_line(line: str) -> str:
+    line = _html_breaks_to_text(line)
+    line = re.sub(r"\s+", " ", line).strip()
+    return line
+
+
+def _compact_text(text: str, limit: int = 240) -> str:
+    compact = re.sub(r"\s+", " ", text).strip()
+    if len(compact) > limit:
+        return compact[: limit - 3] + "..."
+    return compact
 
 
 def parse_pages(markdown_text: str, source_file: str = "") -> list[PageBlock]:

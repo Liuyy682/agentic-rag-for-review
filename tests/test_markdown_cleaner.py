@@ -83,6 +83,74 @@ Third page body
         self.assertEqual(len(cleaned.candidates), 3)
         self.assertTrue(all(candidate.action == "kept" for candidate in cleaned.candidates))
 
+    def test_removes_low_value_picture_text_blocks(self):
+        markdown = """# Optical Fiber
+
+![](image.png)
+
+**----- Start of picture text -----**<br>
+College of Computer Science ， BJUT<br>**----- End of picture text -----**<br>
+
+Useful body text
+--- end of page.page_number=1 ---
+"""
+
+        cleaned = clean_markdown_text(markdown, source_file="slides.pdf")
+
+        self.assertNotIn("Start of picture text", cleaned.cleaned_text)
+        self.assertNotIn("College of Computer Science", cleaned.cleaned_text)
+        self.assertIn("Useful body text", cleaned.cleaned_text)
+        self.assertIn("low_value_picture_text", [event.reason for event in cleaned.events])
+
+    def test_keeps_data_rich_picture_text_blocks(self):
+        markdown = """# Attenuation
+
+**----- Start of picture text -----**<br>
+0<br>Attenuation<br>20<br>ACR<br>40<br>NEXT<br>60<br>65<br>0 100 200 300 400 500<br>Frequency (MHz)<br>NEXT = near-end crosstalk<br>ACR = attenuation-to-crosstalk ratio<br>decibels<br>**----- End of picture text -----**<br>
+--- end of page.page_number=1 ---
+"""
+
+        cleaned = clean_markdown_text(markdown, source_file="slides.pdf")
+
+        self.assertIn("Start of picture text", cleaned.cleaned_text)
+        self.assertIn("Frequency (MHz)", cleaned.cleaned_text)
+
+    def test_removes_incomplete_and_too_short_image_analysis_blocks(self):
+        markdown = """# Antennas
+
+![](parabola.png)
+
+<!-- image-analysis:start
+OCR: (a) Parabola;
+image-analysis:end -->
+
+![](loss.png)
+
+<!-- image-analysis:start
+OCR: Loss (dB) Distance (km)
+RAG_SUMMARY: 自由空间
+KEY_TERMS: Loss, Distance
+image-analysis:end -->
+
+![](fiber.png)
+
+<!-- image-analysis:start
+OCR: Input pulse, Output pulse
+RAG_SUMMARY: 该图对比展示不同光纤传输模式下输入脉冲和输出脉冲的形态差异。
+KEY_TERMS: Optical fiber, Input pulse, Output pulse
+image-analysis:end -->
+--- end of page.page_number=1 ---
+"""
+
+        cleaned = clean_markdown_text(markdown, source_file="slides.pdf")
+
+        self.assertNotIn("OCR: (a) Parabola;", cleaned.cleaned_text)
+        self.assertNotIn("RAG_SUMMARY: 自由空间", cleaned.cleaned_text)
+        self.assertIn("不同光纤传输模式", cleaned.cleaned_text)
+        reasons = [event.reason for event in cleaned.events]
+        self.assertIn("incomplete_image_analysis", reasons)
+        self.assertIn("low_quality_image_analysis", reasons)
+
     def test_chunker_adds_page_metadata_and_writes_cleaning_outputs(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             old_cleaned_dir = config.MARKDOWN_CLEANED_DIR

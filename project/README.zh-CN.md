@@ -63,6 +63,7 @@ PDF → Markdown 转换 → 父/子分块 → 向量索引 → Agent 检索 → 
 | `project/app.py` | 应用入口，启动 Gradio UI |
 | `project/config.py` | **中心配置枢纽** - 模型/提供商/分块策略等优先在这里修改 |
 | `project/utils.py` | PDF 转 Markdown 以及上下文 token 估算 |
+| `project/image_describer.py` | 针对 PDF 导出图片的本地 VLM 识别与说明 |
 | `project/document_chunker.py` | 父子分块逻辑，包含清洗与合并规则 |
 | `project/Dockerfile` | 集成 Ollama 的 Dockerfile（本地部署） |
 
@@ -171,6 +172,22 @@ HEADERS_TO_SPLIT_ON = [
     ("###", "H3")
 ]
 ```
+
+### 多模态 PDF 摄取（可选）
+
+```python
+DOCUMENT_IMAGE_DIR = "document_images"      # PDF 图片导出目录
+PDF_EXTRACT_IMAGES = True                   # PDF 转 Markdown 时保存图片
+PDF_IMAGE_DPI = 150
+PDF_IMAGE_FORMAT = "png"
+
+VLM_IMAGE_CAPTION_ENABLED = False           # 启动本地 VLM 服务后再开启
+LOCAL_VLM_BASE_URL = "http://localhost:8000/v1"
+LOCAL_VLM_API_KEY = "EMPTY"
+LOCAL_VLM_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
+```
+
+当 `VLM_IMAGE_CAPTION_ENABLED=true` 时，Markdown 中的图片引用会发送给本地 OpenAI-compatible 视觉模型。模型输出的 OCR 文本和图片说明会写回 Markdown，再进入现有分块、向量化和检索流程。
 
 ### Langfuse 可观测性（可选）
 

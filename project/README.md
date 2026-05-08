@@ -63,6 +63,7 @@ PDF → Markdown Conversion → Parent/Child Chunking → Vector Indexing → Ag
 | `project/app.py` | Application entry point, launches Gradio UI |
 | `project/config.py` | **Central configuration hub** - edit this for provider/model/chunking changes |
 | `project/utils.py` | PDF to Markdown conversion and context token estimation |
+| `project/image_describer.py` | Local VLM image captioning for exported PDF images |
 | `project/document_chunker.py` | Parent/child splitting logic with cleaning and merging rules |
 | `project/Dockerfile` | Dockerfile with Ollama for local deployment |
 
@@ -159,6 +160,22 @@ HEADERS_TO_SPLIT_ON = [
     ("###", "H3")
 ]
 ```
+
+### Multimodal PDF Ingestion (Optional)
+
+```python
+DOCUMENT_IMAGE_DIR = "document_images"      # Exported PDF picture regions
+PDF_EXTRACT_IMAGES = True                   # Store images during PDF -> Markdown conversion
+PDF_IMAGE_DPI = 150
+PDF_IMAGE_FORMAT = "png"
+
+VLM_IMAGE_CAPTION_ENABLED = False           # Enable after starting a local VLM server
+LOCAL_VLM_BASE_URL = "http://localhost:8000/v1"
+LOCAL_VLM_API_KEY = "EMPTY"
+LOCAL_VLM_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
+```
+
+When `VLM_IMAGE_CAPTION_ENABLED=true`, Markdown image references are sent to a local OpenAI-compatible vision model. The generated OCR text and image description are inserted back into the Markdown before chunking, so the existing text retrieval pipeline can search image content.
 
 ### Langfuse Observability (Optional)
 

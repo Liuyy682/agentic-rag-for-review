@@ -19,6 +19,7 @@ MARKDOWN_DIR = os.path.join(_BASE_DIR, "markdown_docs")
 MARKDOWN_CLEANED_DIR = os.path.join(_BASE_DIR, "markdown_docs_cleaned")
 MARKDOWN_CLEANING_LOG_DIR = os.path.join(_BASE_DIR, "markdown_cleaning_logs")
 MARKDOWN_CLEANING_DIFF_DIR = os.path.join(_BASE_DIR, "markdown_cleaning_diffs")
+DOCUMENT_IMAGE_DIR = os.path.join(_BASE_DIR, "document_images")
 PARENT_STORE_PATH = os.path.join(_BASE_DIR, "parent_store")
 QDRANT_DB_PATH = os.path.join(_BASE_DIR, "qdrant_db")
 
@@ -77,6 +78,29 @@ MARKDOWN_CLEANING_ENABLED = True
 HEADER_FOOTER_SCAN_LINES = 3
 MIN_REPEAT_PAGES = 3
 MIN_REPEAT_RATIO = 0.3
+
+# --- Multimodal Document Ingestion ---
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+PDF_EXTRACT_IMAGES = _env_bool("PDF_EXTRACT_IMAGES", True)
+PDF_IMAGE_DPI = int(os.environ.get("PDF_IMAGE_DPI", "150"))
+PDF_IMAGE_FORMAT = os.environ.get("PDF_IMAGE_FORMAT", "png")
+
+VLM_IMAGE_CAPTION_ENABLED = _env_bool("VLM_IMAGE_CAPTION_ENABLED", False)
+LOCAL_VLM_BASE_URL = os.environ.get("LOCAL_VLM_BASE_URL", "http://localhost:8000/v1")
+LOCAL_VLM_API_KEY = os.environ.get("LOCAL_VLM_API_KEY", "EMPTY")
+LOCAL_VLM_MODEL = os.environ.get("LOCAL_VLM_MODEL", "Qwen/Qwen2.5-VL-7B-Instruct")
+LOCAL_VLM_TIMEOUT_SECONDS = float(os.environ.get("LOCAL_VLM_TIMEOUT_SECONDS", "120"))
+LOCAL_VLM_MAX_TOKENS = int(os.environ.get("LOCAL_VLM_MAX_TOKENS", "800"))
+VLM_IMAGE_MIN_WIDTH = int(os.environ.get("VLM_IMAGE_MIN_WIDTH", "80"))
+VLM_IMAGE_MIN_HEIGHT = int(os.environ.get("VLM_IMAGE_MIN_HEIGHT", "40"))
+VLM_IMAGE_CONTEXT_CHARS = int(os.environ.get("VLM_IMAGE_CONTEXT_CHARS", "1200"))
+VLM_IMAGE_MAX_PER_DOC = int(os.environ.get("VLM_IMAGE_MAX_PER_DOC", "80"))
+VLM_IMAGE_ANALYSIS_WORKERS = int(os.environ.get("VLM_IMAGE_ANALYSIS_WORKERS", "1"))
 
 # --- Langfuse Observability ---
 LANGFUSE_ENABLED = os.environ.get("LANGFUSE_ENABLED", "false").lower() == "true"
