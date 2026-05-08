@@ -23,6 +23,23 @@ class ParentStoreManager:
         for parent_id, doc in parents:
             self.save(parent_id, doc.page_content, doc.metadata)
 
+    def delete_many(self, parent_ids: List[str]) -> None:
+        """Remove stale parent records identified by the incremental manifest."""
+        for parent_id in parent_ids:
+            file_path = self.__store_path / f"{parent_id}.json"
+            if file_path.exists():
+                file_path.unlink()
+
+    def delete_by_source_file(self, source_file: str) -> None:
+        """Remove all parent records for a document before a manifest-backed rebuild."""
+        for file_path in self.__store_path.glob("*.json"):
+            try:
+                data = json.loads(file_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                continue
+            if data.get("metadata", {}).get("source_file") == source_file:
+                file_path.unlink()
+
     def load(self, parent_id: str) -> Dict:
         file_path = self.__store_path / (
             parent_id if parent_id.lower().endswith(".json") else f"{parent_id}.json"

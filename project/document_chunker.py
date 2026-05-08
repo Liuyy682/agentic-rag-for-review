@@ -2,9 +2,11 @@ import os
 import glob
 import difflib
 import config
+from collections import defaultdict
 from pathlib import Path
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
-from markdown_cleaner import clean_markdown_text, write_cleaning_log
+from markdown_cleaner import clean_markdown_text, parse_pages, write_cleaning_log
+from core.index_manifest import INDEX_SCHEMA_VERSION, current_index_config
 
 class DocumentChuncker:
     def __init__(self):
@@ -30,25 +32,36 @@ class DocumentChuncker:
         
         return all_parent_chunks, all_child_chunks
 
-    def create_chunks_single(self, md_path):
+    def create_chunks_single(self, md_path, page_numbers=None):
+        """Create chunks for the whole document or for a page-level rebuild window."""
         doc_path = Path(md_path)
 
         with open(doc_path, "r", encoding="utf-8") as f:
             markdown_text = f.read()
 
-        parent_chunks = self.__create_page_aware_parent_chunks(markdown_text, doc_path)
-        
-        merged_parents = self.__merge_small_parents(parent_chunks)
-        split_parents = self.__split_large_parents(merged_parents)
-        cleaned_parents = self.__clean_small_chunks(split_parents)
+        parent_chunk_groups = self.__create_page_aware_parent_chunk_groups(markdown_text, doc_path, page_numbers)
         
         all_parent_chunks, all_child_chunks = [], []
-        self.__create_child_chunks(all_parent_chunks, all_child_chunks, cleaned_parents, doc_path)
+        parent_counts_by_page = defaultdict(int)
+        for parent_chunks in parent_chunk_groups:
+            merged_parents = self.__merge_small_parents(parent_chunks)
+            split_parents = self.__split_large_parents(merged_parents)
+            cleaned_parents = self.__clean_small_chunks(split_parents)
+            self.__create_child_chunks(
+                all_parent_chunks,
+                all_child_chunks,
+                cleaned_parents,
+                doc_path,
+                parent_counts_by_page,
+            )
         return all_parent_chunks, all_child_chunks
 
-    def __create_page_aware_parent_chunks(self, markdown_text, doc_path):
+    def __create_page_aware_parent_chunk_groups(self, markdown_text, doc_path, page_numbers=None):
+        """Split only selected pages, keeping contiguous pages together for merging."""
+        selected_pages = {int(page) for page in page_numbers} if page_numbers else None
         if not config.MARKDOWN_CLEANING_ENABLED:
-            return self.__parent_splitter.split_text(markdown_text)
+            pages = parse_pages(markdown_text, source_file=f"{doc_path.stem}.pdf")
+            return self.__split_pages_into_parent_groups(pages, doc_path, selected_pages, use_cleaned_text=False)
 
         cleaned = clean_markdown_text(
             markdown_text,
@@ -58,26 +71,59 @@ class DocumentChuncker:
             min_repeat_ratio=config.MIN_REPEAT_RATIO,
         )
         self.__write_cleaning_outputs(markdown_text, cleaned, doc_path)
+        return self.__split_pages_into_parent_groups(cleaned.pages, doc_path, selected_pages, use_cleaned_text=True)
 
-        parent_chunks = []
-        for page in cleaned.pages:
-            if not page.cleaned_text.strip():
-                continue
+    def __split_pages_into_parent_groups(self, pages, doc_path, selected_pages, use_cleaned_text):
+        page_groups = self.__contiguous_page_groups(pages, selected_pages)
+        parent_chunk_groups = []
 
-            page_chunks = self.__parent_splitter.split_text(page.cleaned_text)
-            if not page_chunks:
-                continue
+        for page_group in page_groups:
+            parent_chunks = []
+            for page in page_group:
+                page_text = page.cleaned_text if use_cleaned_text else page.raw_text
+                if not page_text.strip():
+                    continue
 
-            for chunk in page_chunks:
-                chunk.metadata.update({
-                    "source_file": f"{doc_path.stem}.pdf",
-                    "page_number": page.page_number,
-                    "page_numbers": [page.page_number] if page.page_number is not None else [],
-                    "slide_title": page.slide_title,
-                })
-            parent_chunks.extend(page_chunks)
+                page_chunks = self.__parent_splitter.split_text(page_text)
+                if not page_chunks:
+                    continue
 
-        return parent_chunks
+                for chunk in page_chunks:
+                    chunk.metadata.update({
+                        "source_file": f"{doc_path.stem}.pdf",
+                        "page_number": page.page_number,
+                        "page_numbers": [page.page_number] if page.page_number is not None else [1],
+                        "slide_title": page.slide_title,
+                    })
+                parent_chunks.extend(page_chunks)
+
+            if parent_chunks:
+                parent_chunk_groups.append(parent_chunks)
+
+        return parent_chunk_groups
+
+    def __contiguous_page_groups(self, pages, selected_pages):
+        """Avoid merging across gaps when a local rebuild skips unaffected pages."""
+        selected = []
+        for page in pages:
+            page_number = page.page_number if page.page_number is not None else 1
+            if selected_pages is None or page_number in selected_pages:
+                selected.append(page)
+
+        if not selected:
+            return []
+
+        groups = [[selected[0]]]
+        previous = selected[0].page_number if selected[0].page_number is not None else 1
+        for page in selected[1:]:
+            current = page.page_number if page.page_number is not None else 1
+            if current == previous + 1:
+                groups[-1].append(page)
+            else:
+                groups.append([page])
+            previous = current
+
+        return groups
 
     def __write_cleaning_outputs(self, raw_markdown_text, cleaned, doc_path):
         cleaned_dir = Path(config.MARKDOWN_CLEANED_DIR)
@@ -191,14 +237,27 @@ class DocumentChuncker:
             else:
                 target[key] = value
 
-    def __create_child_chunks(self, all_parent_pairs, all_child_chunks, parent_chunks, doc_path):
-        for i, p_chunk in enumerate(parent_chunks):
-            parent_id = f"{doc_path.stem}_parent_{i}"
+    def __create_child_chunks(self, all_parent_pairs, all_child_chunks, parent_chunks, doc_path, parent_counts_by_page):
+        index_config = current_index_config()
+        for p_chunk in parent_chunks:
+            # Parent IDs are anchored to source page, not whole-document order,
+            # so rebuilding page 3 does not shift IDs for pages 4+.
+            page_numbers = p_chunk.metadata.get("page_numbers") or [p_chunk.metadata.get("page_number") or 1]
+            page_numbers = [page for page in page_numbers if page is not None]
+            start_page = min(page_numbers) if page_numbers else 1
+            local_parent_index = parent_counts_by_page[start_page]
+            parent_counts_by_page[start_page] += 1
+            parent_id = f"{doc_path.stem}_page_{start_page}_parent_{local_parent_index}"
             p_chunk.metadata.update({
                 "source": str(doc_path.stem)+".pdf",
                 "source_file": str(doc_path.stem)+".pdf",
                 "parent_id": parent_id,
-                "chunk_index": i,
+                "chunk_index": len(all_parent_pairs),
+                "doc_id": doc_path.stem,
+                "index_schema_version": INDEX_SCHEMA_VERSION,
+                "chunker_config_hash": index_config["chunker_config_hash"],
+                "cleaner_config_hash": index_config["cleaner_config_hash"],
+                "embedding_config_hash": index_config["embedding_config_hash"],
             })
             
             all_parent_pairs.append((parent_id, p_chunk))
@@ -206,4 +265,5 @@ class DocumentChuncker:
             for child_index, child_chunk in enumerate(child_chunks):
                 child_chunk.metadata["chunk_id"] = f"{parent_id}_child_{child_index}"
                 child_chunk.metadata["chunk_index"] = len(all_child_chunks) + child_index
+                child_chunk.metadata["doc_id"] = doc_path.stem
             all_child_chunks.extend(child_chunks)

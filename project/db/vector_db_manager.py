@@ -34,6 +34,42 @@ class VectorDbManager:
         except Exception as e:
             print(f"Warning: could not delete collection {collection_name}: {e}")
 
+    def delete_by_parent_ids(self, collection_name: str, parent_ids: list[str]) -> None:
+        """Remove child vectors for stale parent chunks during page-level updates."""
+        if not parent_ids:
+            return
+        self.__client.delete(
+            collection_name=collection_name,
+            points_selector=qmodels.FilterSelector(
+                filter=qmodels.Filter(
+                    must=[
+                        qmodels.FieldCondition(
+                            key="metadata.parent_id",
+                            match=qmodels.MatchAny(any=parent_ids),
+                        )
+                    ]
+                )
+            ),
+            wait=True,
+        )
+
+    def delete_by_source_file(self, collection_name: str, source_file: str) -> None:
+        """Remove all vectors for a document before its first manifest-backed index."""
+        self.__client.delete(
+            collection_name=collection_name,
+            points_selector=qmodels.FilterSelector(
+                filter=qmodels.Filter(
+                    must=[
+                        qmodels.FieldCondition(
+                            key="metadata.source_file",
+                            match=qmodels.MatchValue(value=source_file),
+                        )
+                    ]
+                )
+            ),
+            wait=True,
+        )
+
     def get_collection(
         self,
         collection_name,
