@@ -7,16 +7,16 @@ PROJECT_DIR = Path(__file__).resolve().parents[1] / "project"
 sys.path.insert(0, str(PROJECT_DIR))
 
 import config
-from core.document_manager import DocumentManager
-from core.index_manifest import (
+from ingestion.document_manager import DocumentManager
+from ingestion.index_manifest import (
     IndexManifest,
     changed_pages,
     close_rebuild_scope,
     current_index_config,
     expand_with_neighbors,
 )
-from db.parent_store_manager import ParentStoreManager
-from document_chunker import DocumentChuncker
+from storage.parent_store import ParentStoreManager
+from ingestion.chunking import DocumentChunker
 
 
 def paged_markdown(page_3_text="page three"):
@@ -84,7 +84,7 @@ class FakeRagSystem:
         self.collection_name = "test_collection"
         self.vector_db = FakeVectorDb()
         self.parent_store = ParentStoreManager(parent_store_path)
-        self.chunker = DocumentChuncker()
+        self.chunker = DocumentChunker()
 
 
 class ConfigPatch:

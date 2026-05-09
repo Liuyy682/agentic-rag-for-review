@@ -62,26 +62,37 @@ PDF → Markdown Conversion → Parent/Child Chunking → Vector Indexing → Ag
 |------|---------|
 | `project/app.py` | Application entry point, launches Gradio UI |
 | `project/config.py` | **Central configuration hub** - edit this for provider/model/chunking changes |
-| `project/utils.py` | PDF to Markdown conversion and context token estimation |
-| `project/image_describer.py` | Local VLM image captioning for exported PDF images |
-| `project/document_chunker.py` | Parent/child splitting logic with cleaning and merging rules |
 | `project/Dockerfile` | Dockerfile with Ollama for local deployment |
 
-### Core System
+### Application & Chat
 
 | File | Purpose |
 |------|---------|
+| `project/application/rag_application.py` | Wires the RAG system, document manager, and chat interface |
 | `project/core/rag_system.py` | System bootstrap - creates managers and compiles LangGraph agent |
-| `project/core/document_manager.py` | Document ingestion pipeline (convert, chunk, index) |
-| `project/core/chat_interface.py` | Thin wrapper for agent graph interaction |
-| `project/core/observability.py` | Optional Langfuse tracing — callback handler lifecycle |
+| `project/chat/chat_interface.py` | Thin wrapper for agent graph interaction |
+| `project/observability/langfuse.py` | Optional Langfuse tracing callback lifecycle |
 
-### Database Layer
+### Document Ingestion
 
 | File | Purpose |
 |------|---------|
-| `project/db/vector_db_manager.py` | Qdrant client wrapper with embedding initialization |
-| `project/db/parent_store_manager.py` | File-backed storage for parent chunks |
+| `project/ingestion/document_manager.py` | Document ingestion pipeline (convert, chunk, index) |
+| `project/ingestion/conversion.py` | PDF to Markdown conversion and context token estimation |
+| `project/ingestion/cleaning.py` | Markdown page parsing and cleanup |
+| `project/ingestion/chunking.py` | Parent/child splitting logic with cleaning and merging rules |
+| `project/ingestion/image_describer.py` | Local VLM image captioning for exported PDF images |
+| `project/ingestion/index_manifest.py` | Page-level incremental indexing manifest |
+
+### Storage & Retrieval
+
+| File | Purpose |
+|------|---------|
+| `project/storage/vector_store.py` | Qdrant client wrapper with embedding initialization |
+| `project/storage/parent_store.py` | File-backed storage for parent chunks |
+| `project/retrieval/pipeline.py` | Retrieval orchestration and parent expansion |
+| `project/retrieval/fusion.py` | Reciprocal rank fusion utilities |
+| `project/retrieval/reranker.py` | Cross-encoder reranking |
 
 ### RAG Agent (LangGraph)
 
@@ -111,9 +122,9 @@ All primary settings are in `project/config.py`. Key parameters:
 ### Directory Configuration
 
 ```python
-MARKDOWN_DIR = "markdown_docs"        # Storage for converted PDF → Markdown files
-PARENT_STORE_PATH = "parent_store"    # File-backed storage for parent chunks
-QDRANT_DB_PATH = "qdrant_db"          # Local Qdrant vector database path
+MARKDOWN_DIR = "runtime/markdown_docs"        # Storage for converted PDF → Markdown files
+PARENT_STORE_PATH = "runtime/parent_store"    # File-backed storage for parent chunks
+QDRANT_DB_PATH = "runtime/qdrant_db"          # Local Qdrant vector database path
 ```
 
 ### Qdrant Configuration
@@ -362,7 +373,7 @@ SPARSE_MODEL = "Qdrant/bm25"  # Usually no need to change
 
 ⚠️ **Important:** Changing embeddings requires re-indexing all documents through the Gradio UI.
 
-**Implementation Details** (in `project/db/vector_db_manager.py`):
+**Implementation Details** (in `project/storage/vector_store.py`):
 
 ```python
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -407,7 +418,7 @@ MAX_PARENT_SIZE = 8000
 # MAX_PARENT_SIZE = 15000
 ```
 
-**Step 2 (Optional):** Replace the splitter in `project/document_chunker.py`
+**Step 2 (Optional):** Replace the splitter in `project/ingestion/chunking.py`
 
 **Default (Character-based):**
 ```python
@@ -561,12 +572,12 @@ This pattern allows the agent to either request clarification from the user or f
 **Vector Database:**
 - Default: Local Qdrant
 - Alternatives: Remote Qdrant Cloud, Pinecone, Weaviate
-- Edit: `project/db/vector_db_manager.py`
+- Edit: `project/storage/vector_store.py`
 
 **Parent Store:**
 - Default: JSON file
 - Alternatives: PostgreSQL, MongoDB, S3
-- Edit: `project/db/parent_store_manager.py`
+- Edit: `project/storage/parent_store.py`
 
 ### Extending the UI
 

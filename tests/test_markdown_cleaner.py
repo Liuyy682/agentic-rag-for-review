@@ -7,8 +7,8 @@ PROJECT_DIR = Path(__file__).resolve().parents[1] / "project"
 sys.path.insert(0, str(PROJECT_DIR))
 
 import config
-from document_chunker import DocumentChuncker
-from markdown_cleaner import clean_markdown_text
+from ingestion.chunking import DocumentChunker
+from ingestion.cleaning import clean_markdown_text
 
 
 SAMPLE_MARKDOWN = """# Agentic RAG Overview
@@ -168,7 +168,7 @@ image-analysis:end -->
                 md_path = Path(temp_dir) / "slides.md"
                 md_path.write_text(SAMPLE_MARKDOWN, encoding="utf-8")
 
-                parent_chunks, child_chunks = DocumentChuncker().create_chunks_single(md_path)
+                parent_chunks, child_chunks = DocumentChunker().create_chunks_single(md_path)
 
                 self.assertTrue(parent_chunks)
                 self.assertTrue(child_chunks)

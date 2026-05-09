@@ -125,7 +125,7 @@ def invoke_rag_answer(rag_system: RAGSystem, question: str) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run end-to-end RAG output capture and optional RAGAS evaluation.")
     parser.add_argument("--dataset", default=str(PROJECT_DIR / "evaluation" / "datasets" / "eval_questions.jsonl"))
-    parser.add_argument("--output-dir", default=str(PROJECT_DIR / "evaluation" / "reports"))
+    parser.add_argument("--output-dir", default=config.EVALUATION_REPORTS_DIR)
     parser.add_argument("--run-label", default="baseline_ragas")
     parser.add_argument("--dataset-version", default="eval_v1")
     parser.add_argument("--top-k", type=int, default=10)

@@ -46,7 +46,7 @@ export DEEPSEEK_MODEL="deepseek-chat"
   --subset covidqa \
   --split test \
   --limit 50 \
-  --output-dir project/evaluation/reports/ragbench_covidqa_test_50 \
+  --output-dir runtime/evaluation_reports/ragbench_covidqa_test_50 \
   --ragas-max-workers 1 \
   --ragas-batch-size 1 \
   --ragas-timeout 120 \
@@ -61,7 +61,7 @@ for subset in covidqa hotpotqa msmarco; do
     --subset "$subset" \
     --split test \
     --limit 50 \
-    --output-dir "project/evaluation/reports/ragbench_${subset}_test_50" \
+    --output-dir "runtime/evaluation_reports/ragbench_${subset}_test_50" \
     --ragas-max-workers 1 \
     --ragas-batch-size 1 \
     --ragas-timeout 120 \

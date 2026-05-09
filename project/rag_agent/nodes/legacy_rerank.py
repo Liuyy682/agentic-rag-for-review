@@ -4,7 +4,7 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, ToolMessage
 
 import config
-from rag_agent.reranker import get_reranker
+from retrieval.reranker import get_reranker
 
 from ..graph_state import AgentState
 

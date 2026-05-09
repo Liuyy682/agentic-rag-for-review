@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 # --- Directory Configuration ---
 _BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 _PROJECT_DIR = os.path.dirname(__file__)
+_RUNTIME_DIR = os.path.join(_BASE_DIR, "runtime")
 
 load_dotenv(os.path.join(_BASE_DIR, ".env"))
 load_dotenv(os.path.join(_PROJECT_DIR, ".env"), override=True)
@@ -15,13 +16,14 @@ if not os.path.exists(_DEFAULT_HF_HOME) or not os.access(_DEFAULT_HF_HOME, os.W_
     os.environ.setdefault("HF_HUB_CACHE", os.path.join(HF_CACHE_DIR, "hub"))
     os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", os.path.join(HF_CACHE_DIR, "sentence-transformers"))
 
-MARKDOWN_DIR = os.path.join(_BASE_DIR, "markdown_docs")
-MARKDOWN_CLEANED_DIR = os.path.join(_BASE_DIR, "markdown_docs_cleaned")
-MARKDOWN_CLEANING_LOG_DIR = os.path.join(_BASE_DIR, "markdown_cleaning_logs")
-MARKDOWN_CLEANING_DIFF_DIR = os.path.join(_BASE_DIR, "markdown_cleaning_diffs")
-DOCUMENT_IMAGE_DIR = os.path.join(_BASE_DIR, "document_images")
-PARENT_STORE_PATH = os.path.join(_BASE_DIR, "parent_store")
-QDRANT_DB_PATH = os.path.join(_BASE_DIR, "qdrant_db")
+MARKDOWN_DIR = os.path.join(_RUNTIME_DIR, "markdown_docs")
+MARKDOWN_CLEANED_DIR = os.path.join(_RUNTIME_DIR, "markdown_docs_cleaned")
+MARKDOWN_CLEANING_LOG_DIR = os.path.join(_RUNTIME_DIR, "markdown_cleaning_logs")
+MARKDOWN_CLEANING_DIFF_DIR = os.path.join(_RUNTIME_DIR, "markdown_cleaning_diffs")
+DOCUMENT_IMAGE_DIR = os.path.join(_RUNTIME_DIR, "document_images")
+PARENT_STORE_PATH = os.path.join(_RUNTIME_DIR, "parent_store")
+QDRANT_DB_PATH = os.path.join(_RUNTIME_DIR, "qdrant_db")
+EVALUATION_REPORTS_DIR = os.path.join(_RUNTIME_DIR, "evaluation_reports")
 
 # --- Qdrant Configuration ---
 CHILD_COLLECTION = "document_child_chunks"

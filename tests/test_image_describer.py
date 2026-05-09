@@ -10,7 +10,7 @@ sys.path.insert(0, str(PROJECT_DIR))
 
 from PIL import Image
 
-from image_describer import (
+from ingestion.image_describer import (
     enhance_markdown_image_references,
     extract_image_context,
     resolve_image_path,

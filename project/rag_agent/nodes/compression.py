@@ -3,7 +3,7 @@ from typing import Literal, Set
 from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
 from langgraph.types import Command
 
-from utils import estimate_context_tokens
+from ingestion.conversion import estimate_context_tokens
 
 from ..graph_state import AgentState
 from ..prompts import get_context_compression_prompt

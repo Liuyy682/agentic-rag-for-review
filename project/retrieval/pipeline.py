@@ -5,8 +5,8 @@ from typing import List, Optional
 from langchain_core.documents import Document
 
 import config
-from db.parent_store_manager import ParentStoreManager
-from rag_agent.reranker import get_reranker
+from storage.parent_store import ParentStoreManager
+from retrieval.reranker import get_reranker
 
 logger = logging.getLogger(__name__)
 

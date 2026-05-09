@@ -247,7 +247,7 @@ def main() -> None:
     parser.add_argument("--split", default="test")
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--offset", type=int, default=0)
-    parser.add_argument("--output-dir", default=str(PROJECT_DIR / "evaluation" / "reports" / "ragbench"))
+    parser.add_argument("--output-dir", default=str(Path(config.EVALUATION_REPORTS_DIR) / "ragbench"))
     parser.add_argument("--answer-model", default=None)
     parser.add_argument("--generate", action="store_true", help="Kept for compatibility; answer generation always runs.")
     parser.add_argument("--ragas", action="store_true", help="Kept for compatibility; RAGAS always runs in this runner.")

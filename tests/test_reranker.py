@@ -7,7 +7,7 @@ PROJECT_DIR = Path(__file__).resolve().parents[1] / "project"
 sys.path.insert(0, str(PROJECT_DIR))
 
 from langchain_core.documents import Document
-from rag_agent.reranker import CrossEncoderReranker
+from retrieval.reranker import CrossEncoderReranker
 
 
 def build_fake_cross_encoder(scores):
@@ -40,7 +40,7 @@ class TestCrossEncoderReranker(unittest.TestCase):
         scores = [0.2, 0.9, 0.4]
         fake_encoder = build_fake_cross_encoder(scores)
 
-        with patch("rag_agent.reranker.CrossEncoder", fake_encoder):
+        with patch("retrieval.reranker.CrossEncoder", fake_encoder):
             reranker = CrossEncoderReranker("fake-model", device="cpu", batch_size=2, max_length=32)
             results = reranker.rerank("query", make_docs(3), top_k=3)
 
@@ -53,7 +53,7 @@ class TestCrossEncoderReranker(unittest.TestCase):
         scores = [0.2, 0.9, 0.4]
         fake_encoder = build_fake_cross_encoder(scores)
 
-        with patch("rag_agent.reranker.CrossEncoder", fake_encoder):
+        with patch("retrieval.reranker.CrossEncoder", fake_encoder):
             reranker = CrossEncoderReranker("fake-model", device="cpu", batch_size=2, max_length=32)
             results = reranker.rerank("query", make_docs(3), top_k=2, score_threshold=0.5)
 

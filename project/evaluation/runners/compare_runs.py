@@ -8,13 +8,14 @@ if str(PROJECT_DIR) not in sys.path:
 
 from evaluation.io import read_metrics_csv
 from evaluation.reports import write_compare_report
+import config
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Compare two evaluation metric CSV files.")
     parser.add_argument("--baseline", required=True)
     parser.add_argument("--current", required=True)
-    parser.add_argument("--output", default=str(PROJECT_DIR / "evaluation" / "reports" / "compare_report.md"))
+    parser.add_argument("--output", default=str(Path(config.EVALUATION_REPORTS_DIR) / "compare_report.md"))
     parser.add_argument("--baseline-label", default="Baseline")
     parser.add_argument("--current-label", default="Current")
     args = parser.parse_args()
@@ -31,4 +32,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -1,5 +1,5 @@
 import gradio as gr
-from app_services.rag_application import RagApplication
+from application.rag_application import RagApplication
 import os
 
 ASSETS_DIR = os.path.join(os.path.dirname(__file__), "..", "assets")

@@ -6,7 +6,7 @@ markdown_cleaning_diffs/
 markdown_cleaning_logs/
 document_images/
 parent_store/
-docs/
+runtime/
 __pycache__/
 .vscode/
 .env

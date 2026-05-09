@@ -62,26 +62,37 @@ PDF → Markdown 转换 → 父/子分块 → 向量索引 → Agent 检索 → 
 |------|------|
 | `project/app.py` | 应用入口，启动 Gradio UI |
 | `project/config.py` | **中心配置枢纽** - 模型/提供商/分块策略等优先在这里修改 |
-| `project/utils.py` | PDF 转 Markdown 以及上下文 token 估算 |
-| `project/image_describer.py` | 针对 PDF 导出图片的本地 VLM 识别与说明 |
-| `project/document_chunker.py` | 父子分块逻辑，包含清洗与合并规则 |
 | `project/Dockerfile` | 集成 Ollama 的 Dockerfile（本地部署） |
 
-### 核心系统
+### 应用与聊天
 
 | 文件 | 作用 |
 |------|------|
+| `project/application/rag_application.py` | 组装 RAG 系统、文档管理器与聊天接口 |
 | `project/core/rag_system.py` | 系统引导：创建管理器并编译 LangGraph Agent |
-| `project/core/document_manager.py` | 文档摄取流水线（转换、分块、索引） |
-| `project/core/chat_interface.py` | 与 Agent 图交互的轻量封装 |
-| `project/core/observability.py` | 可选 Langfuse 追踪：回调处理器生命周期 |
+| `project/chat/chat_interface.py` | 与 Agent 图交互的轻量封装 |
+| `project/observability/langfuse.py` | 可选 Langfuse 追踪：回调处理器生命周期 |
 
-### 数据库层
+### 文档摄取
 
 | 文件 | 作用 |
 |------|------|
-| `project/db/vector_db_manager.py` | Qdrant 客户端封装，含向量模型初始化 |
-| `project/db/parent_store_manager.py` | 基于文件的父块存储 |
+| `project/ingestion/document_manager.py` | 文档摄取流水线（转换、分块、索引） |
+| `project/ingestion/conversion.py` | PDF 转 Markdown 以及上下文 token 估算 |
+| `project/ingestion/cleaning.py` | Markdown 页解析与清洗 |
+| `project/ingestion/chunking.py` | 父子分块逻辑，包含清洗与合并规则 |
+| `project/ingestion/image_describer.py` | 针对 PDF 导出图片的本地 VLM 识别与说明 |
+| `project/ingestion/index_manifest.py` | 页级增量索引 manifest |
+
+### 存储与检索
+
+| 文件 | 作用 |
+|------|------|
+| `project/storage/vector_store.py` | Qdrant 客户端封装，含向量模型初始化 |
+| `project/storage/parent_store.py` | 基于文件的父块存储 |
+| `project/retrieval/pipeline.py` | 检索编排与父块扩展 |
+| `project/retrieval/fusion.py` | RRF 融合工具 |
+| `project/retrieval/reranker.py` | Cross-encoder 重排 |
 
 ### RAG Agent（LangGraph）
 
@@ -111,9 +122,9 @@ PDF → Markdown 转换 → 父/子分块 → 向量索引 → Agent 检索 → 
 ### 目录配置
 
 ```python
-MARKDOWN_DIR = "markdown_docs"        # 转换后的 PDF → Markdown 文件存储目录
-PARENT_STORE_PATH = "parent_store"    # 基于文件的父块存储目录
-QDRANT_DB_PATH = "qdrant_db"          # 本地 Qdrant 向量数据库路径
+MARKDOWN_DIR = "runtime/markdown_docs"        # 转换后的 PDF → Markdown 文件存储目录
+PARENT_STORE_PATH = "runtime/parent_store"    # 基于文件的父块存储目录
+QDRANT_DB_PATH = "runtime/qdrant_db"          # 本地 Qdrant 向量数据库路径
 ```
 
 ### Qdrant 配置
@@ -374,7 +385,7 @@ SPARSE_MODEL = "Qdrant/bm25"  # 通常无需修改
 
 ⚠️ **重要：** 修改 embedding 后，必须通过 Gradio UI 对所有文档重新索引。
 
-**实现细节**（位于 `project/db/vector_db_manager.py`）：
+**实现细节**（位于 `project/storage/vector_store.py`）：
 
 ```python
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -419,7 +430,7 @@ MAX_PARENT_SIZE = 8000
 # MAX_PARENT_SIZE = 15000
 ```
 
-**步骤 2（可选）：** 替换 `project/document_chunker.py` 中的切分器
+**步骤 2（可选）：** 替换 `project/ingestion/chunking.py` 中的切分器
 
 **默认（基于字符）：**
 ```python
@@ -573,12 +584,12 @@ def route_after_rewrite(state: State) -> Literal["request_clarification", "agent
 **向量数据库：**
 - 默认：本地 Qdrant
 - 可选：远程 Qdrant Cloud、Pinecone、Weaviate
-- 修改文件：`project/db/vector_db_manager.py`
+- 修改文件：`project/storage/vector_store.py`
 
 **父块存储：**
 - 默认：JSON 文件
 - 可选：PostgreSQL、MongoDB、S3
-- 修改文件：`project/db/parent_store_manager.py`
+- 修改文件：`project/storage/parent_store.py`
 
 ### 扩展 UI
 

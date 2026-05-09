@@ -9,7 +9,7 @@ if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
 import config
-from db.vector_db_manager import VectorDbManager
+from storage.vector_store import VectorDbManager
 from evaluation.data import load_eval_questions
 from evaluation.io import config_snapshot, make_run_id, write_jsonl, write_metrics_csv
 from evaluation.metrics.retrieval_metrics import (
@@ -174,7 +174,7 @@ def _rerank_candidates(
 
     docs = [doc for doc, _ in docs_with_scores[: config.RERANKER_TOP_N]]
     try:
-        from rag_agent.reranker import get_reranker
+        from retrieval.reranker import get_reranker
 
         reranked = get_reranker().rerank(
             query=query,
@@ -203,7 +203,7 @@ def _float_or_none(value: Any) -> float | None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run retrieval evaluation for the current RAG retriever.")
     parser.add_argument("--dataset", default=str(PROJECT_DIR / "evaluation" / "datasets" / "eval_questions.jsonl"))
-    parser.add_argument("--output-dir", default=str(PROJECT_DIR / "evaluation" / "reports"))
+    parser.add_argument("--output-dir", default=config.EVALUATION_REPORTS_DIR)
     parser.add_argument("--run-label", default="baseline")
     parser.add_argument("--dataset-version", default="eval_v1")
     parser.add_argument("--top-k", type=int, default=10)

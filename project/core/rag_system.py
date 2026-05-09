@@ -1,12 +1,12 @@
 import uuid
 from langchain_openai import ChatOpenAI
 import config
-from db.vector_db_manager import VectorDbManager
-from db.parent_store_manager import ParentStoreManager
-from document_chunker import DocumentChuncker
+from storage.vector_store import VectorDbManager
+from storage.parent_store import ParentStoreManager
+from ingestion.chunking import DocumentChunker
 from rag_agent.tools import ToolFactory
 from rag_agent.graph import create_agent_graph
-from core.observability import Observability
+from observability.langfuse import Observability
 
 class RAGSystem:
 
@@ -14,7 +14,7 @@ class RAGSystem:
         self.collection_name = collection_name
         self.vector_db = VectorDbManager()
         self.parent_store = ParentStoreManager()
-        self.chunker = DocumentChuncker()
+        self.chunker = DocumentChunker()
         self.observability = Observability()
         self.agent_graph = None
         self.thread_id = str(uuid.uuid4())

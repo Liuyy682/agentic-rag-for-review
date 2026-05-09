@@ -10,8 +10,8 @@ if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
 import config
-from db.vector_db_manager import VectorDbManager
-from db.parent_store_manager import ParentStoreManager
+from storage.vector_store import VectorDbManager
+from storage.parent_store import ParentStoreManager
 from evaluation.data import EvalQuestion
 from evaluation.io import config_snapshot, make_run_id, write_jsonl, write_metrics_csv
 from evaluation.llm_config import answer_model as resolve_answer_model
@@ -514,7 +514,7 @@ def main() -> None:
     parser.add_argument("--split", default="test")
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--offset", type=int, default=0)
-    parser.add_argument("--output-dir", default=str(PROJECT_DIR / "evaluation" / "reports"))
+    parser.add_argument("--output-dir", default=config.EVALUATION_REPORTS_DIR)
     parser.add_argument("--run-label", default="ragbench_local_rag")
     parser.add_argument("--top-k", type=int, default=5)
     parser.add_argument("--collection", default="ragbench_eval_child_chunks")
