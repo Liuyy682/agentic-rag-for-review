@@ -2,8 +2,11 @@ import json
 import re
 from langchain_core.messages import HumanMessage, AIMessageChunk, ToolMessage
 
+from .session_memory import SessionMemoryStore
+
 SILENT_NODES = {"recognize_intent", "rewrite_query", "plan_rag_tasks"}
 SYSTEM_NODES = {"summarize_history", "recognize_intent", "rewrite_query", "plan_rag_tasks"}
+MEMORY_WINDOW_SIZE = 5
 
 SYSTEM_NODE_CONFIG = {
     "recognize_intent":   {"title": "🔍 Intent Recognition"},
@@ -75,9 +78,10 @@ def format_intent_content(buffer):
 
 class ChatInterface:
 
-    def __init__(self, rag_system, course_store=None):
+    def __init__(self, rag_system, course_store=None, session_memory=None):
         self.rag_system = rag_system
         self.course_store = course_store
+        self.session_memory = session_memory or SessionMemoryStore()
 
     def _handle_system_node(self, chunk, node, response_messages, system_node_buffer):
         """Update (or create) the collapsible system-node message and surface any clarification."""
@@ -135,6 +139,43 @@ class ChatInterface:
             response_messages.append(make_message(""))
         response_messages[-1]["content"] += chunk.content
 
+    def _load_conversation_memory(self, session_id):
+        try:
+            recent_turns = self.session_memory.get_recent_turns(session_id, limit=MEMORY_WINDOW_SIZE)
+            return self.session_memory.format_recent_turns(recent_turns)
+        except Exception as e:
+            print(f"Warning: Could not load session memory for {session_id}: {e}")
+            return ""
+
+    def _save_turn(self, session_id, user_original, assistant_final, course_name=None):
+        try:
+            self.session_memory.append_turn(
+                session_id=session_id,
+                user_original=user_original,
+                assistant_final=assistant_final,
+                course_name=course_name,
+            )
+        except Exception as e:
+            print(f"Warning: Could not save session memory for {session_id}: {e}")
+
+    def _delete_session_memory(self, session_id):
+        try:
+            self.session_memory.delete_session(session_id)
+        except Exception as e:
+            print(f"Warning: Could not delete session memory for {session_id}: {e}")
+
+    def _extract_final_response(self, response_messages):
+        for msg in reversed(response_messages):
+            if msg.get("role") != "assistant":
+                continue
+            content = str(msg.get("content") or "").strip()
+            if not content:
+                continue
+            metadata = msg.get("metadata") or {}
+            if not metadata or metadata.get("node") == "clarification":
+                return content
+        return ""
+
     def chat(self, message, history, course_name=None):
         """Generator that streams Gradio chat message dicts."""
         if not self.rag_system.agent_graph:
@@ -146,15 +187,27 @@ class ChatInterface:
         else:
             self.rag_system.set_course_scope([])
 
+        session_id    = self.rag_system.thread_id
+        user_message  = message.strip()
+        memory        = self._load_conversation_memory(session_id)
         config        = self.rag_system.get_config()
         current_state = self.rag_system.agent_graph.get_state(config)
 
         try:
             if current_state.next:
-                self.rag_system.agent_graph.update_state(config, {"messages": [HumanMessage(content=message.strip())]})
+                self.rag_system.agent_graph.update_state(
+                    config,
+                    {
+                        "messages": [HumanMessage(content=user_message)],
+                        "conversation_memory": memory,
+                    },
+                )
                 stream_input = None
             else:
-                stream_input = {"messages": [HumanMessage(content=message.strip())]}
+                stream_input = {
+                    "messages": [HumanMessage(content=user_message)],
+                    "conversation_memory": memory,
+                }
 
             response_messages  = []
             active_tool_calls  = {}
@@ -177,9 +230,14 @@ class ChatInterface:
 
                 yield response_messages
 
+            final_response = self._extract_final_response(response_messages)
+            if final_response:
+                self._save_turn(session_id, user_message, final_response, course_name=course_name)
+
         except Exception as e:
             yield f"❌ Error: {str(e)}"
 
     def clear_session(self):
+        self._delete_session_memory(self.rag_system.thread_id)
         self.rag_system.reset_thread()
         self.rag_system.observability.flush()

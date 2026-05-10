@@ -25,6 +25,7 @@ PARENT_STORE_PATH = os.path.join(_RUNTIME_DIR, "parent_store")
 QDRANT_DB_PATH = os.path.join(_RUNTIME_DIR, "qdrant_db")
 EVALUATION_REPORTS_DIR = os.path.join(_RUNTIME_DIR, "evaluation_reports")
 COURSE_STRUCTURE_PATH = os.path.join(_RUNTIME_DIR, "course_structure.json")
+SESSION_MEMORY_PATH = os.path.join(_RUNTIME_DIR, "session_memory.sqlite3")
 
 # --- Qdrant Configuration ---
 CHILD_COLLECTION = "document_child_chunks"

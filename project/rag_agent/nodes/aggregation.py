@@ -25,6 +25,8 @@ def aggregate_answers(state: State, llm):
             f"{ans['answer']}\n"
         )
 
-    user_message = HumanMessage(content=f"""Original user question: {state["originalQuery"]}\nRetrieved answers:{formatted_answers}""")
+    conversation_memory = state.get("conversation_memory", "").strip()
+    memory_section = f"Conversation memory:\n{conversation_memory}\n\n" if conversation_memory else ""
+    user_message = HumanMessage(content=f"""{memory_section}Original user question: {state["originalQuery"]}\nRetrieved answers:{formatted_answers}""")
     synthesis_response = llm.invoke([SystemMessage(content=get_aggregation_prompt()), user_message])
     return {"messages": [AIMessage(content=synthesis_response.content)]}

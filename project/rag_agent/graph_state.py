@@ -14,6 +14,7 @@ class State(MessagesState):
     """State for main agent graph"""
     questionIsClear: bool = False
     conversation_summary: str = ""
+    conversation_memory: str = ""
     originalQuery: str = "" 
     rewrittenQuestions: List[str] = []
     intent_type: str = ""

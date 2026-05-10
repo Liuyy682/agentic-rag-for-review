@@ -27,18 +27,20 @@ Supported intent_type values:
 - rag_qa: the user asks a clear question that should be answered from documents.
 - clarification: the user message is too vague, ambiguous, or missing a referent.
 - chitchat: the user is greeting, thanking, or making casual conversation that does not require retrieval.
-- follow_up: the user asks a context-dependent follow-up. Resolve it using conversation_summary when possible.
+- follow_up: the user asks a context-dependent follow-up. Resolve it using conversation context when possible.
 
 Rules:
-1. If a follow-up can be resolved from conversation_summary, set intent_type to follow_up, set is_clear to true, and provide the resolved normalized_query.
-2. If a follow-up cannot be resolved, set intent_type to clarification and ask a concise clarification question.
-3. For rag_qa and resolved follow_up, set is_clear to true and provide a close normalized_query. Leave tasks empty.
-4. For chitchat, do not create tasks.
-5. Do not use an unsupported category.
-6. Keep normalized_query close to the user's meaning and include only necessary conversation context.
+1. Use conversation memory and conversation summary for continuity on every intent, but do not treat prior assistant answers as document evidence.
+2. If a follow-up can be resolved from conversation context, set intent_type to follow_up, set is_clear to true, and provide the resolved normalized_query.
+3. If a follow-up cannot be resolved, set intent_type to clarification and ask a concise clarification question.
+4. For rag_qa and resolved follow_up, set is_clear to true and provide a close normalized_query. Leave tasks empty.
+5. For chitchat, do not create tasks.
+6. Do not use an unsupported category.
+7. Keep normalized_query close to the user's meaning and include only necessary conversation context.
 
 Input:
-- conversation_summary: concise prior conversation context
+- conversation_memory: recent session turns, when available
+- conversation_summary: concise prior conversation context, when available
 - current_query: the user's latest message
 
 Output:
@@ -65,6 +67,7 @@ Rules:
 3. Split only when the query contains distinct information needs.
 4. Keep domain terms, names, numbers, and technical keywords intact.
 5. If the query is still too vague for retrieval, set is_clear to false and ask for concise clarification.
+6. Conversation memory can clarify references, but prior assistant answers are not knowledge-base evidence.
 
 Input:
 - conversation context
@@ -105,6 +108,7 @@ def get_chitchat_prompt() -> str:
     return """You are a concise, friendly assistant.
 
 Respond naturally to the user's casual message without using retrieval tools.
+Use the provided conversation context when it helps continuity.
 Do not mention documents, tools, or internal routing.
 """
 
@@ -239,13 +243,14 @@ Input answers may include metadata:
 
 Rules:
 1. Write in a conversational, natural tone - as if explaining to a colleague.
-2. Use retrieved answers as the only input to the aggregation step.
+2. Use retrieved answers as the factual input to the aggregation step.
 3. Do NOT infer, expand, or interpret acronyms or technical terms unless explicitly defined in the answers.
 4. Weave together the information smoothly, preserving important details, numbers, and examples.
 5. Be comprehensive - include all relevant information from the answers, not just a summary.
 6. If sources disagree, acknowledge both perspectives naturally (e.g., "While some sources suggest X, others indicate Y...").
 7. If an answer is marked answer_mode=knowledge_fallback, preserve the fact that the knowledge base did not provide usable information for that part.
 8. Start directly with the answer - no preambles like "Based on the sources...".
+9. Conversation memory may be used only for continuity and reference resolution. Do not treat it as knowledge-base evidence or as a source.
 
 Formatting:
 - Use Markdown for clarity (headings, lists, bold) but don't overdo it.

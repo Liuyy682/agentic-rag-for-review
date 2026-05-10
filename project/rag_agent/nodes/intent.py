@@ -55,11 +55,24 @@ def _parse_query_analysis(content: str, fallback_query: str) -> QueryAnalysis:
     )
 
 
+def _conversation_context(state: State) -> str:
+    context_parts = []
+    conversation_memory = state.get("conversation_memory", "").strip()
+    conversation_summary = state.get("conversation_summary", "").strip()
+
+    if conversation_memory:
+        context_parts.append(f"Conversation Memory:\n{conversation_memory}")
+    if conversation_summary:
+        context_parts.append(f"Conversation Summary:\n{conversation_summary}")
+
+    return "\n\n".join(context_parts)
+
+
 def recognize_intent(state: State, llm):
     last_message = state["messages"][-1]
-    conversation_summary = state.get("conversation_summary", "")
+    conversation_context = _conversation_context(state)
 
-    context_section = (f"Conversation Context:\n{conversation_summary}\n" if conversation_summary.strip() else "") + f"User Query:\n{last_message.content}\n"
+    context_section = (f"{conversation_context}\n\n" if conversation_context else "") + f"User Query:\n{last_message.content}\n"
 
     response_message = llm.with_config(temperature=0.1).invoke([SystemMessage(content=get_intent_recognition_prompt()), HumanMessage(content=context_section)])
     response = _parse_intent_analysis(str(response_message.content), last_message.content)
@@ -100,10 +113,10 @@ def recognize_intent(state: State, llm):
 
 def rewrite_query(state: State, llm):
     query = state.get("normalized_query") or state.get("originalQuery") or ""
-    conversation_summary = state.get("conversation_summary", "")
+    conversation_context = _conversation_context(state)
 
     prompt_input = (
-        f"Conversation Context:\n{conversation_summary}\n\n"
+        f"Conversation Context:\n{conversation_context or 'None'}\n\n"
         f"Original Query:\n{state.get('originalQuery', query)}\n\n"
         f"Normalized Query:\n{query}\n"
     )
@@ -129,7 +142,7 @@ def rewrite_query(state: State, llm):
             "task_type": "rag_qa",
             "query": question,
             "original_query": state.get("originalQuery", question),
-            "context": conversation_summary,
+            "context": state.get("conversation_summary", ""),
             "constraints": {},
         }
         for idx, question in enumerate(questions)
@@ -169,5 +182,7 @@ def plan_rag_tasks(state: State):
 
 def chitchat_response(state: State, llm):
     query = state.get("normalized_query") or state.get("originalQuery") or state["messages"][-1].content
-    response = llm.invoke([SystemMessage(content=get_chitchat_prompt()), HumanMessage(content=query)])
+    conversation_context = _conversation_context(state)
+    prompt_input = (f"Conversation Context:\n{conversation_context}\n\n" if conversation_context else "") + f"User Query:\n{query}"
+    response = llm.invoke([SystemMessage(content=get_chitchat_prompt()), HumanMessage(content=prompt_input)])
     return {"messages": [AIMessage(content=response.content)]}
