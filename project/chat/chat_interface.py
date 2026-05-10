@@ -75,8 +75,9 @@ def format_intent_content(buffer):
 
 class ChatInterface:
 
-    def __init__(self, rag_system):
+    def __init__(self, rag_system, course_store=None):
         self.rag_system = rag_system
+        self.course_store = course_store
 
     def _handle_system_node(self, chunk, node, response_messages, system_node_buffer):
         """Update (or create) the collapsible system-node message and surface any clarification."""
@@ -134,11 +135,16 @@ class ChatInterface:
             response_messages.append(make_message(""))
         response_messages[-1]["content"] += chunk.content
 
-    def chat(self, message, history):
+    def chat(self, message, history, course_name=None):
         """Generator that streams Gradio chat message dicts."""
         if not self.rag_system.agent_graph:
             yield "⚠️ System not initialized!"
             return
+
+        if self.course_store and course_name:
+            self.rag_system.set_course_scope(self.course_store.source_files_for_course(course_name))
+        else:
+            self.rag_system.set_course_scope([])
 
         config        = self.rag_system.get_config()
         current_state = self.rag_system.agent_graph.get_state(config)

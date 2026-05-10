@@ -11,3 +11,7 @@ __pycache__/
 .vscode/
 .env
 .cache/
+.agents/
+.venv/
+docs/
+notebooks/

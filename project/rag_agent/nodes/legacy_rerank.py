@@ -4,7 +4,7 @@ from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, ToolMessage
 
 import config
-from retrieval.reranker import get_reranker
+from retrieval.reranker import RerankerUnavailable, get_reranker
 
 from ..graph_state import AgentState
 
@@ -179,8 +179,11 @@ def rerank_search_results(state: AgentState):
                 top_k=top_k,
                 score_threshold=config.RERANKER_SCORE_THRESHOLD,
             )
+        except RerankerUnavailable as exc:
+            logger.warning(str(exc))
+            reranked = docs[:top_k]
         except Exception:
-            logger.exception("Rerank failed; using original retrieval order")
+            logger.exception("Rerank failed during scoring; using original retrieval order")
             reranked = docs[:top_k]
 
         new_content = _format_child_chunk_output(reranked)

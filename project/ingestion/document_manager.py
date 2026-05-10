@@ -3,6 +3,7 @@ import shutil
 import config
 from ingestion.conversion import pdfs_to_markdowns, clear_directory_contents
 from ingestion.cleaning import CleanedMarkdown, clean_markdown_text, parse_pages
+from ingestion.course_structure import CourseStructureStore, parse_course_names
 from ingestion.index_manifest import (
     IndexManifest,
     build_document_record,
@@ -15,7 +16,7 @@ from ingestion.index_manifest import (
 
 class DocumentManager:
 
-    def __init__(self, rag_system):
+    def __init__(self, rag_system, course_store=None):
         self.rag_system = rag_system
         self.markdown_dir = Path(config.MARKDOWN_DIR)
         self.markdown_dir.mkdir(parents=True, exist_ok=True)
@@ -24,8 +25,9 @@ class DocumentManager:
         Path(config.MARKDOWN_CLEANING_DIFF_DIR).mkdir(parents=True, exist_ok=True)
         Path(config.DOCUMENT_IMAGE_DIR).mkdir(parents=True, exist_ok=True)
         self.manifest = IndexManifest()
+        self.course_store = course_store or CourseStructureStore()
         
-    def add_documents(self, document_paths, progress_callback=None):
+    def add_documents(self, document_paths, progress_callback=None, course_names=None):
         if not document_paths:
             return 0, 0
             
@@ -37,6 +39,7 @@ class DocumentManager:
             
         added = 0
         skipped = 0
+        course_names = parse_course_names(course_names)
             
         for i, doc_path in enumerate(document_paths):
             if progress_callback:
@@ -54,6 +57,12 @@ class DocumentManager:
                     pdfs_to_markdowns(str(doc_path), overwrite=True)
 
                 indexed = self._index_markdown(md_path)
+                if course_names:
+                    self.course_store.assign_document_to_courses(
+                        source_file=f"{doc_name}.pdf",
+                        course_names=course_names,
+                        markdown_dir=self.markdown_dir,
+                    )
                 if indexed:
                     added += 1
                 else:
@@ -69,6 +78,18 @@ class DocumentManager:
         if not self.markdown_dir.exists():
             return []
         return sorted([p.name.replace(".md", ".pdf") for p in self.markdown_dir.glob("*.md")])
+
+    def get_course_list(self):
+        return self.course_store.format_course_list()
+
+    def get_course_choices(self):
+        return [course["name"] for course in self.course_store.list_courses()]
+
+    def rename_course(self, current_name, new_name):
+        return self.course_store.rename_course(current_name, new_name)
+
+    def rename_section(self, course_name, current_section, new_section):
+        return self.course_store.rename_section(course_name, current_section, new_section)
 
     def _index_markdown(self, md_path: Path) -> bool:
         """Index a Markdown file, using page-level diff when a manifest entry exists."""
@@ -194,3 +215,4 @@ class DocumentManager:
         self.rag_system.vector_db.create_collection(self.rag_system.collection_name)
         self.manifest = IndexManifest()
         self.manifest.save()
+        self.course_store.clear()

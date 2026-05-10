@@ -88,6 +88,7 @@ def clean_markdown_text(
 
     events: list[CleanEvent] = []
     candidates: list[CleanCandidate] = []
+    seen_heading_keys: set[str] = set()
 
     for page in pages:
         page.raw_text = _clean_page_blocks(page.raw_text, page, events, source_file)
@@ -126,6 +127,22 @@ def clean_markdown_text(
                 page.removed_items.append(event)
                 events.append(event)
                 continue
+
+            if not in_code_block and HEADING_RE.match(stripped):
+                heading_key = _normalize_heading_key(stripped)
+                if heading_key in seen_heading_keys:
+                    event = CleanEvent(
+                        source_file=source_file,
+                        page_number=page.page_number,
+                        text=stripped,
+                        action="removed",
+                        reason="duplicate_heading",
+                        confidence=0.95,
+                    )
+                    page.removed_items.append(event)
+                    events.append(event)
+                    continue
+                seen_heading_keys.add(heading_key)
 
             normalized = _normalize_edge_line(line)
             is_repeated_noise = normalized in repeated_edge_lines
@@ -428,6 +445,14 @@ def _normalize_edge_line(line: str) -> str:
     normalized = re.sub(r"\b\d+\s*/\s*\d+\b", "", normalized)
     normalized = re.sub(r"\b\d+\s+of\s+\d+\b", "", normalized, flags=re.IGNORECASE)
     normalized = re.sub(r"\b第\s*\d+\s*页\b", "", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip().lower()
+    return normalized
+
+
+def _normalize_heading_key(line: str) -> str:
+    """Normalize a Markdown heading for document-level duplicate detection."""
+    normalized = re.sub(r"^\s{0,3}#{1,6}\s*", "", line.strip())
+    normalized = re.sub(r"[*_`]+", "", normalized)
     normalized = re.sub(r"\s+", " ", normalized).strip().lower()
     return normalized
 

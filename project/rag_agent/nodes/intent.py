@@ -1,7 +1,7 @@
 import json
 import re
 
-from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from ..graph_state import State
 from ..prompts import get_chitchat_prompt, get_intent_recognition_prompt, get_rewrite_query_prompt
@@ -67,11 +67,9 @@ def recognize_intent(state: State, llm):
     is_rag_intent = intent_type in ("rag_qa", "follow_up") and response.is_clear
 
     if is_rag_intent:
-        delete_all = [RemoveMessage(id=m.id) for m in state["messages"] if not isinstance(m, SystemMessage)]
         return {
             "questionIsClear": True,
             "intent_type": intent_type,
-            "messages": delete_all,
             "originalQuery": last_message.content,
             "normalized_query": response.normalized_query,
             "task_plan": [],

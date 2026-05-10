@@ -60,7 +60,7 @@ class TestMarkdownCleaner(unittest.TestCase):
             "Evaluation",
         ])
 
-    def test_keeps_repeated_markdown_heading_as_protected_content(self):
+    def test_removes_duplicate_markdown_headings_and_keeps_following_content(self):
         markdown = """# Shared Section
 
 First page body
@@ -79,9 +79,14 @@ Third page body
 
         cleaned = clean_markdown_text(markdown, source_file="slides.pdf")
 
-        self.assertEqual(cleaned.cleaned_text.count("# Shared Section"), 3)
-        self.assertEqual(len(cleaned.candidates), 3)
-        self.assertTrue(all(candidate.action == "kept" for candidate in cleaned.candidates))
+        self.assertEqual(cleaned.cleaned_text.count("# Shared Section"), 1)
+        self.assertIn("First page body", cleaned.cleaned_text)
+        self.assertIn("Second page body", cleaned.cleaned_text)
+        self.assertIn("Third page body", cleaned.cleaned_text)
+        self.assertEqual(
+            [event.reason for event in cleaned.events].count("duplicate_heading"),
+            2,
+        )
 
     def test_removes_low_value_picture_text_blocks(self):
         markdown = """# Optical Fiber

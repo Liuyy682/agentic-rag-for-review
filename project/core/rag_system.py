@@ -17,6 +17,7 @@ class RAGSystem:
         self.chunker = DocumentChunker()
         self.observability = Observability()
         self.agent_graph = None
+        self.tool_factory = None
         self.thread_id = str(uuid.uuid4())
         self.recursion_limit = config.GRAPH_RECURSION_LIMIT
 
@@ -33,12 +34,17 @@ class RAGSystem:
             api_key=config.DEEPSEEK_API_KEY,
             base_url=config.DEEPSEEK_BASE_URL,
         )
-        tools = ToolFactory(
+        self.tool_factory = ToolFactory(
             collection,
             vector_db=self.vector_db,
             collection_name=self.collection_name,
-        ).create_tools()
+        )
+        tools = self.tool_factory.create_tools()
         self.agent_graph = create_agent_graph(llm, tools)
+
+    def set_course_scope(self, source_files=None):
+        if self.tool_factory:
+            self.tool_factory.set_allowed_source_files(source_files)
 
     def get_config(self):
         cfg = {"configurable": {"thread_id": self.thread_id}, "recursion_limit": self.recursion_limit}

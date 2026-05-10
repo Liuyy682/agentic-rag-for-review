@@ -6,7 +6,7 @@ from langchain_core.documents import Document
 
 import config
 from storage.parent_store import ParentStoreManager
-from retrieval.reranker import get_reranker
+from retrieval.reranker import RerankerUnavailable, get_reranker
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,19 @@ class RetrievalPipeline:
         self.vector_db = vector_db
         self.collection_name = collection_name
         self.parent_store_manager = parent_store_manager or ParentStoreManager()
+        self.allowed_source_files: set[str] = set()
+
+    def set_allowed_source_files(self, source_files: Optional[List[str]] = None) -> None:
+        self.allowed_source_files = {item for item in (source_files or []) if item}
+
+    def _filter_by_allowed_sources(self, docs: List[Document]) -> List[Document]:
+        if not self.allowed_source_files:
+            return docs
+        return [
+            doc for doc in docs
+            if (doc.metadata or {}).get("source_file") in self.allowed_source_files
+            or (doc.metadata or {}).get("source") in self.allowed_source_files
+        ]
 
     def format_child_chunk_results(self, results) -> str:
         formatted_results = []
@@ -73,7 +86,7 @@ class RetrievalPipeline:
         else:
             raise ValueError(f"Unsupported retrieval fusion mode: {mode}")
 
-        return list(results or [])[:retrieval_limit]
+        return self._filter_by_allowed_sources(list(results or []))[:retrieval_limit]
 
     def search_child_chunks(self, query: str, limit: int) -> str:
         try:
@@ -102,8 +115,11 @@ class RetrievalPipeline:
                 top_k=top_k,
                 score_threshold=config.RERANKER_SCORE_THRESHOLD,
             )
+        except RerankerUnavailable as exc:
+            logger.warning(str(exc))
+            return candidates[:top_k]
         except Exception:
-            logger.exception("Rag research rerank failed; using original retrieval order")
+            logger.exception("Rag research rerank failed during scoring; using original retrieval order")
             return candidates[:top_k]
 
     def context_from_child_doc(self, doc: Document) -> dict:
@@ -139,6 +155,10 @@ class RetrievalPipeline:
             parent_id = parent.get("parent_id", "")
             if not parent_id or parent_id in seen:
                 continue
+            if self.allowed_source_files:
+                source = parent.get("metadata", {}).get("source") or parent.get("metadata", {}).get("source_file")
+                if source not in self.allowed_source_files:
+                    continue
             fallback = fallback_by_parent.get(parent_id)
             fallback_context = self.context_from_child_doc(fallback) if fallback else {}
             seen.add(parent_id)
@@ -174,6 +194,7 @@ class RetrievalPipeline:
             "retry_reason": retry_reason or "",
             "retrieval_mode": config.RETRIEVAL_FUSION_MODE,
             "reranker_enabled": config.RERANKER_ENABLED,
+            "course_scope_sources": sorted(self.allowed_source_files),
         }
 
         try:

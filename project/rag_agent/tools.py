@@ -50,6 +50,9 @@ class ToolFactory:
             retry_reason=retry_reason,
         )
 
+    def set_allowed_source_files(self, source_files=None):
+        self.pipeline.set_allowed_source_files(source_files)
+
     def _retrieve_many_parent_chunks(self, parent_ids) -> str:
         return self.pipeline.retrieve_many_parent_chunks(parent_ids)
 

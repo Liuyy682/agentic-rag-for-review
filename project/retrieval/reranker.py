@@ -14,6 +14,10 @@ import config
 logger = logging.getLogger(__name__)
 
 
+class RerankerUnavailable(RuntimeError):
+    """Raised when the cross-encoder reranker cannot be loaded locally."""
+
+
 def _shorten_query(query: str, max_len: int = 200) -> str:
     if query is None:
         return ""
@@ -55,7 +59,12 @@ class CrossEncoderReranker:
         self.device = resolve_device(device)
         self.batch_size = batch_size
         self.max_length = max_length
-        self.model = CrossEncoder(model_name, device=self.device, max_length=max_length)
+        self.model = CrossEncoder(
+            model_name,
+            device=self.device,
+            max_length=max_length,
+            local_files_only=config.RERANKER_LOCAL_FILES_ONLY,
+        )
 
     def rerank(
         self,
@@ -106,15 +115,26 @@ class CrossEncoderReranker:
 
 
 _reranker: CrossEncoderReranker | None = None
+_reranker_load_error: str | None = None
 
 
 def get_reranker() -> CrossEncoderReranker:
-    global _reranker
+    global _reranker, _reranker_load_error
+    if _reranker_load_error:
+        raise RerankerUnavailable(_reranker_load_error)
+
     if _reranker is None:
-        _reranker = CrossEncoderReranker(
-            model_name=config.RERANKER_MODEL,
-            device=config.RERANKER_DEVICE,
-            batch_size=config.RERANKER_BATCH_SIZE,
-            max_length=config.RERANKER_MAX_LENGTH,
-        )
+        try:
+            _reranker = CrossEncoderReranker(
+                model_name=config.RERANKER_MODEL,
+                device=config.RERANKER_DEVICE,
+                batch_size=config.RERANKER_BATCH_SIZE,
+                max_length=config.RERANKER_MAX_LENGTH,
+            )
+        except Exception as exc:
+            _reranker_load_error = (
+                f"Reranker model unavailable: {config.RERANKER_MODEL}. "
+                "Using original retrieval order."
+            )
+            raise RerankerUnavailable(_reranker_load_error) from exc
     return _reranker

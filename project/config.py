@@ -24,6 +24,7 @@ DOCUMENT_IMAGE_DIR = os.path.join(_RUNTIME_DIR, "document_images")
 PARENT_STORE_PATH = os.path.join(_RUNTIME_DIR, "parent_store")
 QDRANT_DB_PATH = os.path.join(_RUNTIME_DIR, "qdrant_db")
 EVALUATION_REPORTS_DIR = os.path.join(_RUNTIME_DIR, "evaluation_reports")
+COURSE_STRUCTURE_PATH = os.path.join(_RUNTIME_DIR, "course_structure.json")
 
 # --- Qdrant Configuration ---
 CHILD_COLLECTION = "document_child_chunks"
@@ -47,6 +48,7 @@ RERANKER_TOP_N = 40
 RERANKER_FINAL_TOP_K = 5
 RERANKER_MAX_LENGTH = 512
 RERANKER_SCORE_THRESHOLD = None
+RERANKER_LOCAL_FILES_ONLY = os.environ.get("RERANKER_LOCAL_FILES_ONLY", "true").lower() in {"1", "true", "yes", "on"}
 
 # --- Model Configuration ---
 DENSE_MODEL = "sentence-transformers/all-mpnet-base-v2"
