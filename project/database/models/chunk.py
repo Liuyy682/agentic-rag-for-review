@@ -3,7 +3,7 @@ from sqlalchemy import Column, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.sql import func
 
-from project.database.base import Base
+from database.base import Base
 
 
 class ParentChunk(Base):

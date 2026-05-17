@@ -1,7 +1,9 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from project.config import DATABASE_URL
+import config as _config
+
+DATABASE_URL = getattr(_config, "DATABASE_URL", "postgresql://agentic_rag:dev_only@localhost:5432/agentic_rag")
 
 engine = create_engine(
     DATABASE_URL,

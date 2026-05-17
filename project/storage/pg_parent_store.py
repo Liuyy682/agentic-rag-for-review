@@ -1,8 +1,8 @@
 import re
 from typing import Dict, List
 
-from project.database.engine import SessionLocal
-from project.database.models.chunk import ParentChunk, ChildChunk
+from database.engine import SessionLocal
+from database.models.chunk import ParentChunk, ChildChunk
 
 
 class PgParentStoreManager:

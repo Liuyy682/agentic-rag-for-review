@@ -2,7 +2,7 @@ from sqlalchemy import Column, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.sql import func
 
-from project.database.base import Base
+from database.base import Base
 
 
 class KnowledgeBase(Base):

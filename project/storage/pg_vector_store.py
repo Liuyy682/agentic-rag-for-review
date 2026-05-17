@@ -9,8 +9,8 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Session
 
 import config
-from project.database.engine import SessionLocal
-from project.database.models.chunk import ParentChunk, ChildChunk
+from database.engine import SessionLocal
+from database.models.chunk import ParentChunk, ChildChunk
 from retrieval.fusion import reciprocal_rank_fusion
 
 logger = logging.getLogger(__name__)

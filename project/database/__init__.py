@@ -1,2 +1,2 @@
-from project.database.base import Base
-from project.database.engine import engine, SessionLocal, get_session
+from database.base import Base
+from database.engine import engine, SessionLocal, get_session
