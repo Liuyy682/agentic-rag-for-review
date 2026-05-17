@@ -75,7 +75,15 @@ class PgVectorManager:
     """Pgvector replacement for VectorDbManager. Same public API."""
 
     def __init__(self):
-        self._dense_embeddings = HuggingFaceEmbeddings(model_name=config.DENSE_MODEL)
+        import os
+
+        self._dense_embeddings = HuggingFaceEmbeddings(
+            model_name=config.DENSE_MODEL,
+            cache_folder=getattr(config, "HF_CACHE_DIR", None),
+            model_kwargs={
+                "local_files_only": os.environ.get("HF_HUB_OFFLINE", "0") == "1",
+            },
+        )
 
     # ── lifecycle ──────────────────────────────────────────────────
 
