@@ -13,7 +13,10 @@ from retrieval.fusion import reciprocal_rank_fusion
 def _make_ts_query(text: str) -> str:
     import jieba
 
-    return " & ".join(jieba.cut(text))
+    tokens = [t.strip() for t in jieba.cut(text) if t.strip()]
+    if not tokens:
+        return text.strip().replace(" ", " & ")
+    return " & ".join(tokens)
 
 
 class _PgCollection:
