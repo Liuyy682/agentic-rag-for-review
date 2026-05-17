@@ -28,6 +28,12 @@ EVALUATION_REPORTS_DIR = os.path.join(_RUNTIME_DIR, "evaluation_reports")
 COURSE_STRUCTURE_PATH = os.path.join(_RUNTIME_DIR, "course_structure.json")
 SESSION_MEMORY_PATH = os.path.join(_RUNTIME_DIR, "session_memory.sqlite3")
 
+# --- Database Configuration ---
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://agentic_rag:dev_only@localhost:5432/agentic_rag",
+)
+
 # --- Qdrant Configuration ---
 CHILD_COLLECTION = "document_child_chunks"
 SPARSE_VECTOR_NAME = "sparse"
