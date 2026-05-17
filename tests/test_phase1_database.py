@@ -115,21 +115,24 @@ def test_vector_insert_and_search():
         session.add(chunk)
         session.commit()
 
-        # Search with the same embedding
+        # Search: use <=> operator with literal vector cast
+        vec_str = "'[" + ",".join(str(v) for v in embedding) + "]'"
         result = session.execute(
             text(
-                "SELECT child_id, 1 - (embedding <=> :emb::vector) AS sim "
+                "SELECT child_id, 1 - (embedding <=> " + vec_str + "::vector) AS sim "
                 "FROM child_chunks "
                 "WHERE child_id = 'test_1_8_child' "
-                "ORDER BY embedding <=> :emb::vector LIMIT 1"
+                "ORDER BY embedding <=> " + vec_str + "::vector LIMIT 1"
             ),
-            {"emb": str(embedding)},
         ).first()
         assert result is not None
         assert result[0] == "test_1_8_child"
-        assert result[1] > 0.99  # cosine similarity to itself ≈ 1.0
+        assert result[1] > 0.99
+
+        # cleanup
+        session.execute(text("DELETE FROM child_chunks WHERE child_id = 'test_1_8_child'"))
+        session.commit()
     finally:
-        session.rollback()
         session.close()
 
 
@@ -138,6 +141,7 @@ def test_vector_insert_and_search():
 def test_jieba_tsvector_chinese_search():
     """1.9 jieba tokenized tsvector + ts_rank Chinese search."""
     import jieba
+    from sqlalchemy import func as sa_func
 
     session = SessionLocal()
     try:
@@ -149,7 +153,7 @@ def test_jieba_tsvector_chinese_search():
             parent_id="test_1_9_parent",
             doc_id="test_1_9_doc",
             content=content,
-            content_tsv=text(f"to_tsvector('simple', :tokens)"),
+            content_tsv=sa_func.to_tsvector("simple", tokens),
         )
         session.add(chunk)
         session.commit()
@@ -169,8 +173,11 @@ def test_jieba_tsvector_chinese_search():
         assert result is not None
         assert result[0] == "test_1_9_child"
         assert result[1] > 0
+
+        # cleanup
+        session.execute(text("DELETE FROM child_chunks WHERE child_id = 'test_1_9_child'"))
+        session.commit()
     finally:
-        session.rollback()
         session.close()
 
 
@@ -183,8 +190,9 @@ def test_user_crud():
         session.add(u)
         session.commit()
         assert u.id is not None
+        session.delete(u)
+        session.commit()
     finally:
-        session.rollback()
         session.close()
 
 
@@ -199,8 +207,9 @@ def test_knowledge_base_crud():
         session.add(kb)
         session.commit()
         assert kb.id is not None
+        session.delete(kb)
+        session.commit()
     finally:
-        session.rollback()
         session.close()
 
 
@@ -216,8 +225,9 @@ def test_document_crud():
         session.add(doc)
         session.commit()
         assert doc.id is not None
+        session.delete(doc)
+        session.commit()
     finally:
-        session.rollback()
         session.close()
 
 
@@ -232,8 +242,9 @@ def test_parent_chunk_crud():
         session.add(pc)
         session.commit()
         assert pc.id is not None
+        session.delete(pc)
+        session.commit()
     finally:
-        session.rollback()
         session.close()
 
 
@@ -249,8 +260,9 @@ def test_conversation_message_crud():
         session.add(msg)
         session.commit()
         assert msg.id is not None
+        session.delete(msg)
+        session.commit()
     finally:
-        session.rollback()
         session.close()
 
 
@@ -265,8 +277,9 @@ def test_eval_result_crud():
         session.add(er)
         session.commit()
         assert er.id is not None
+        session.delete(er)
+        session.commit()
     finally:
-        session.rollback()
         session.close()
 
 

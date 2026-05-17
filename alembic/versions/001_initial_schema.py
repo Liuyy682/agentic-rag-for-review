@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects import postgresql
 
 revision: str = "001"
@@ -18,8 +19,6 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
-
     op.create_table(
         "users",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
@@ -96,7 +95,7 @@ def upgrade() -> None:
         sa.Column("page_numbers", postgresql.ARRAY(sa.Integer())),
         sa.Column("slide_title", sa.String(500)),
         sa.Column("content", sa.Text(), nullable=False),
-        sa.Column("embedding", sa.NullType()),  # pgvector vector(768)
+        sa.Column("embedding", Vector(768)),
         sa.Column("content_tsv", postgresql.TSVECTOR()),
         sa.Column("metadata", postgresql.JSONB()),
         sa.Column("created_at", sa.DateTime(), server_default=sa.func.now()),
