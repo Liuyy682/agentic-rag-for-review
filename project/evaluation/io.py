@@ -64,7 +64,7 @@ def config_snapshot(
         "git_commit": _git_commit(),
         "dataset_path": dataset_path,
         "dataset_version": dataset_version,
-        "pdf_parser": "pymupdf4llm",
+        "document_converter": getattr(config, "DOCUMENT_CONVERTER", "markitdown"),
         "markdown_cleaner": False,
         "chunk_size": config.CHILD_CHUNK_SIZE,
         "chunk_overlap": config.CHILD_CHUNK_OVERLAP,

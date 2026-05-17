@@ -43,12 +43,14 @@ def run_ragas_metrics(
         timeout=timeout,
         max_retries=max_retries,
     )
-    llm = llm_factory(
-        judge_model(),
-        client=client,
-        max_tokens=int(os.environ.get("RAGAS_MAX_TOKENS", "4096")),
-        temperature=0,
-    )
+    llm_kwargs = {
+        "client": client,
+        "temperature": 0,
+    }
+    max_tokens = _ragas_max_tokens()
+    if max_tokens is not None:
+        llm_kwargs["max_tokens"] = max_tokens
+    llm = llm_factory(judge_model(), **llm_kwargs)
     metrics = [
         _Faithfulness(llm=llm),
         _ContextPrecision(llm=llm),
@@ -121,6 +123,13 @@ def _to_float(value: Any) -> float | None:
         return number
     except (TypeError, ValueError):
         return None
+
+
+def _ragas_max_tokens() -> int | None:
+    raw = os.environ.get("RAGAS_MAX_TOKENS", "4096").strip().lower()
+    if raw in {"", "none", "null", "unlimited", "0"}:
+        return None
+    return int(raw)
 
 
 def build_ragas_error_cases(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

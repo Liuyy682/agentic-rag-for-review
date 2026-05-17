@@ -27,13 +27,19 @@ def create_gradio_ui():
         if not files:
             return None, format_file_list(), format_course_list(), course_dropdown_update(), course_dropdown_update()
             
-        added, skipped = doc_manager.add_documents(
+        summary = doc_manager.add_documents_detailed(
             files, 
             course_names=course_names,
             progress_callback=lambda p, desc: progress(p, desc=desc)
         )
         
-        gr.Info(f"✅ Added: {added} | Skipped: {skipped}")
+        gr.Info(
+            "✅ "
+            f"Added: {summary.added} | "
+            f"Skipped: {summary.skipped} | "
+            f"Failed: {summary.failed} | "
+            f"Courses updated: {summary.course_updated}"
+        )
         return None, format_file_list(), format_course_list(), course_dropdown_update(), course_dropdown_update()
     
     def clear_handler():
@@ -73,10 +79,10 @@ def create_gradio_ui():
         
         with gr.Tab("Documents", elem_id="doc-management-tab"):
             gr.Markdown("## Add New Documents")
-            gr.Markdown("Upload PDF or Markdown files. Duplicates will be automatically skipped.")
+            gr.Markdown("Upload PDF, Markdown, Word, or PowerPoint files. Duplicates will be automatically skipped.")
             
             files_input = gr.File(
-                label="Drop PDF or Markdown files here",
+                label="Drop PDF, MD, DOCX, or PPTX files here",
                 file_count="multiple",
                 type="filepath",
                 height=200,

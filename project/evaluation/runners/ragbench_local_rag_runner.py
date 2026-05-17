@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -43,7 +44,15 @@ def run_ragbench_local_rag_eval(
     generate_answers: bool = True,
     answer_model: str | None = None,
     use_agent_graph: bool = False,
+    retrieval_fusion_mode: str | None = None,
+    reranker_enabled: bool | None = None,
+    continue_on_error: bool = True,
 ) -> Dict[str, Any]:
+    if retrieval_fusion_mode:
+        config.RETRIEVAL_FUSION_MODE = retrieval_fusion_mode
+    if reranker_enabled is not None:
+        config.RERANKER_ENABLED = reranker_enabled
+
     run_id = make_run_id(run_label)
     output = Path(output_dir)
     run_dir = output / "eval_runs" / run_id
@@ -95,14 +104,28 @@ def run_ragbench_local_rag_eval(
         )
     for index, (question, row) in enumerate(zip(questions, rows), start=1):
         print(f"[{index}/{len(questions)}] Generating answer for {question.question_id}...", flush=True)
-        chunks = retrieve_chunks(
-            collection=collection,
-            query=question.question,
-            top_k=top_k,
-            score_threshold=None,
-            vector_db=vector_db,
-            collection_name=collection_name,
-        )
+        diagnostics = {}
+        try:
+            chunks = retrieve_chunks(
+                collection=collection,
+                query=question.question,
+                top_k=top_k,
+                score_threshold=None,
+                vector_db=vector_db,
+                collection_name=collection_name,
+            )
+        except Exception as exc:
+            if not continue_on_error:
+                raise
+            chunks = []
+            diagnostics.update(
+                {
+                    "retrieval_failed": True,
+                    "retrieval_error_type": type(exc).__name__,
+                    "retrieval_error": str(exc),
+                }
+            )
+            print(f"[{index}/{len(questions)}] Retrieval failed for {question.question_id}: {exc}", flush=True)
         retrieval_rows.append(
             {
                 "question_id": question.question_id,
@@ -111,19 +134,34 @@ def run_ragbench_local_rag_eval(
             }
         )
         contexts = [chunk["text"] for chunk in chunks]
-        answer_result = (
-            answer_generator.generate(question.question, contexts)
-            if answer_generator
-            else {"answer": row.get("reference_response", ""), "contexts": contexts, "diagnostics": {}}
-        )
+        try:
+            answer_result = (
+                answer_generator.generate(question.question, contexts)
+                if answer_generator
+                else {"answer": row.get("reference_response", ""), "contexts": contexts, "diagnostics": {}}
+            )
+        except Exception as exc:
+            if not continue_on_error:
+                raise
+            answer_result = {
+                "answer": "",
+                "contexts": contexts,
+                "diagnostics": {
+                    "answer_generation_failed": True,
+                    "answer_error_type": type(exc).__name__,
+                    "answer_error": str(exc),
+                },
+            }
+            print(f"[{index}/{len(questions)}] Answer generation failed for {question.question_id}: {exc}", flush=True)
         if isinstance(answer_result, str):
             answer = answer_result
             answer_contexts = contexts
-            diagnostics = {}
+            answer_diagnostics = {}
         else:
             answer = answer_result["answer"]
             answer_contexts = answer_result.get("contexts") or contexts
-            diagnostics = answer_result.get("diagnostics") or {}
+            answer_diagnostics = answer_result.get("diagnostics") or {}
+        diagnostics.update(answer_diagnostics)
         diagnostic_row = {"question_id": question.question_id, **diagnostics}
         output_row = {
             "question_id": question.question_id,
@@ -172,9 +210,11 @@ def run_ragbench_local_rag_eval(
             "sparse_top_k": config.SPARSE_TOP_K,
             "rrf_top_k": config.RRF_TOP_K,
             "rrf_k": config.RRF_K,
+            "reranker_enabled": config.RERANKER_ENABLED,
             "reranker": config.RERANKER_MODEL if config.RERANKER_ENABLED else None,
             "reranker_top_n": config.RERANKER_TOP_N,
             "reranker_final_top_k": config.RERANKER_FINAL_TOP_K,
+            "continue_on_error": continue_on_error,
             "answer_source": "agent_graph" if use_agent_graph and generate_answers else ("generated" if generate_answers else "reference"),
             "answer_model": resolved_answer_model,
             "use_agent_graph": use_agent_graph,
@@ -527,7 +567,27 @@ def main() -> None:
     parser.add_argument("--ragas-max-retries", type=int, default=2)
     parser.add_argument("--ragas-max-workers", type=int, default=4)
     parser.add_argument("--ragas-batch-size", type=int, default=4)
+    parser.add_argument("--ragas-max-tokens", default=None, help="Set to none/unlimited/0 to omit a RAGAS judge max_tokens limit.")
+    parser.add_argument(
+        "--retrieval-fusion-mode",
+        choices=["rrf", "dense", "sparse", "qdrant_hybrid"],
+        default=None,
+        help="Override config.RETRIEVAL_FUSION_MODE for this run.",
+    )
+    parser.add_argument(
+        "--reranker",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable or disable the cross-encoder reranker for this run.",
+    )
+    parser.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="Stop on the first per-question retrieval or answer-generation error.",
+    )
     args = parser.parse_args()
+    if args.ragas_max_tokens is not None:
+        os.environ["RAGAS_MAX_TOKENS"] = args.ragas_max_tokens
 
     if args.ragas_input:
         result = run_ragas_from_outputs(
@@ -558,6 +618,9 @@ def main() -> None:
         generate_answers=not args.use_reference_answer,
         answer_model=args.answer_model,
         use_agent_graph=args.use_agent_graph,
+        retrieval_fusion_mode=args.retrieval_fusion_mode,
+        reranker_enabled=args.reranker,
+        continue_on_error=not args.fail_fast,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

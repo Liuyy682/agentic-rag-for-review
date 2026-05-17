@@ -60,7 +60,26 @@ class TestMarkdownCleaner(unittest.TestCase):
             "Evaluation",
         ])
 
-    def test_removes_duplicate_markdown_headings_and_keeps_following_content(self):
+    def test_removes_adjacent_duplicate_markdown_headings_and_keeps_following_content(self):
+        markdown = """# Shared Section
+
+# Shared Section
+
+First page body
+--- end of page.page_number=1 ---
+
+"""
+
+        cleaned = clean_markdown_text(markdown, source_file="slides.pdf")
+
+        self.assertEqual(cleaned.cleaned_text.count("# Shared Section"), 1)
+        self.assertIn("First page body", cleaned.cleaned_text)
+        self.assertEqual(
+            [event.reason for event in cleaned.events].count("duplicate_heading"),
+            1,
+        )
+
+    def test_keeps_repeated_markdown_headings_on_different_pages(self):
         markdown = """# Shared Section
 
 First page body
@@ -79,13 +98,10 @@ Third page body
 
         cleaned = clean_markdown_text(markdown, source_file="slides.pdf")
 
-        self.assertEqual(cleaned.cleaned_text.count("# Shared Section"), 1)
-        self.assertIn("First page body", cleaned.cleaned_text)
-        self.assertIn("Second page body", cleaned.cleaned_text)
-        self.assertIn("Third page body", cleaned.cleaned_text)
+        self.assertEqual(cleaned.cleaned_text.count("# Shared Section"), 3)
         self.assertEqual(
             [event.reason for event in cleaned.events].count("duplicate_heading"),
-            2,
+            0,
         )
 
     def test_removes_low_value_picture_text_blocks(self):
@@ -184,13 +200,13 @@ image-analysis:end -->
                 self.assertIn("-Company Confidential", diff_path.read_text(encoding="utf-8"))
 
                 first_parent = parent_chunks[0][1]
-                self.assertEqual(first_parent.metadata["source_file"], "slides.pdf")
+                self.assertEqual(first_parent.metadata["source_file"], "slides.md")
                 self.assertEqual(first_parent.metadata["page_number"], 1)
                 self.assertEqual(first_parent.metadata["page_numbers"], [1])
                 self.assertEqual(first_parent.metadata["slide_title"], "Agentic RAG Overview")
 
                 first_child = child_chunks[0]
-                self.assertEqual(first_child.metadata["source_file"], "slides.pdf")
+                self.assertEqual(first_child.metadata["source_file"], "slides.md")
                 self.assertIn("chunk_index", first_child.metadata)
             finally:
                 config.MARKDOWN_CLEANED_DIR = old_cleaned_dir

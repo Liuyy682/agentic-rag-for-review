@@ -88,14 +88,14 @@ def clean_markdown_text(
 
     events: list[CleanEvent] = []
     candidates: list[CleanCandidate] = []
-    seen_heading_keys: set[str] = set()
-
     for page in pages:
         page.raw_text = _clean_page_blocks(page.raw_text, page, events, source_file)
         page.raw_lines = page.raw_text.splitlines()
         page.slide_title = _extract_slide_title(page.raw_lines)
         cleaned_lines = []
         in_code_block = False
+        previous_heading_key: str | None = None
+        previous_nonblank_was_heading = False
 
         for index, line in enumerate(page.raw_lines):
             stripped = line.strip()
@@ -103,6 +103,7 @@ def clean_markdown_text(
             # Do not apply line-level noise rules inside fenced code blocks.
             if stripped.startswith("```"):
                 in_code_block = not in_code_block
+                previous_nonblank_was_heading = False
                 cleaned_lines.append(line)
                 continue
 
@@ -126,11 +127,16 @@ def clean_markdown_text(
                 )
                 page.removed_items.append(event)
                 events.append(event)
+                previous_nonblank_was_heading = False
+                continue
+
+            if not stripped:
+                cleaned_lines.append(line)
                 continue
 
             if not in_code_block and HEADING_RE.match(stripped):
                 heading_key = _normalize_heading_key(stripped)
-                if heading_key in seen_heading_keys:
+                if previous_nonblank_was_heading and heading_key == previous_heading_key:
                     event = CleanEvent(
                         source_file=source_file,
                         page_number=page.page_number,
@@ -142,7 +148,10 @@ def clean_markdown_text(
                     page.removed_items.append(event)
                     events.append(event)
                     continue
-                seen_heading_keys.add(heading_key)
+                previous_heading_key = heading_key
+                previous_nonblank_was_heading = True
+            else:
+                previous_nonblank_was_heading = False
 
             normalized = _normalize_edge_line(line)
             is_repeated_noise = normalized in repeated_edge_lines

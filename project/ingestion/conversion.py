@@ -1,12 +1,15 @@
 import os
 import shutil
 import config
-import pymupdf.layout
-import pymupdf4llm
 from pathlib import Path
 import glob
 import tiktoken
-from ingestion.image_describer import enhance_markdown_image_references
+
+
+SUPPORTED_DOCUMENT_EXTENSIONS = {
+    extension.lower()
+    for extension in getattr(config, "SUPPORTED_DOCUMENT_EXTENSIONS", [".pdf", ".md", ".docx", ".pptx"])
+}
 
 
 def clear_directory_contents(directory: Path) -> None:
@@ -23,46 +26,80 @@ def clear_directory_contents(directory: Path) -> None:
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-def pdf_to_markdown(pdf_path, output_dir):
-    pdf_path = Path(pdf_path)
-    doc = pymupdf.open(pdf_path)
-    try:
-        image_dir = Path(config.DOCUMENT_IMAGE_DIR) / pdf_path.stem
-        if config.PDF_EXTRACT_IMAGES:
-            image_dir.mkdir(parents=True, exist_ok=True)
 
-        md = pymupdf4llm.to_markdown(
-            doc,
-            header=False,
-            footer=False,
-            page_separators=True,
-            ignore_images=not config.PDF_EXTRACT_IMAGES,
-            write_images=config.PDF_EXTRACT_IMAGES,
-            image_path=str(image_dir) if config.PDF_EXTRACT_IMAGES else None,
-            dpi=config.PDF_IMAGE_DPI,
-            image_format=config.PDF_IMAGE_FORMAT,
-        )
-        if config.VLM_IMAGE_CAPTION_ENABLED:
-            md = enhance_markdown_image_references(
-                md,
-                markdown_dir=Path(output_dir),
-                image_root=image_dir,
-            )
+def is_supported_document(path) -> bool:
+    return Path(str(path)).suffix.lower() in SUPPORTED_DOCUMENT_EXTENSIONS
 
-        md_cleaned = md.encode('utf-8', errors='surrogatepass').decode('utf-8', errors='ignore')
-        output_path = Path(output_dir) / pdf_path.stem
-        Path(output_path).with_suffix(".md").write_bytes(md_cleaned.encode('utf-8'))
-    finally:
-        doc.close()
 
-def pdfs_to_markdowns(path_pattern, overwrite: bool = False):
+def _looks_like_uri(value: str) -> bool:
+    return value.strip().lower().startswith(("http:", "https:", "file:", "data:"))
+
+
+def _normalize_markdown(markdown_text: str) -> str:
+    return markdown_text.encode("utf-8", errors="surrogatepass").decode("utf-8", errors="ignore")
+
+
+def _convert_with_markitdown(document_path: Path) -> str:
+    from markitdown import MarkItDown
+
+    converter = MarkItDown()
+    result = converter.convert_local(document_path)
+    return result.text_content
+
+
+def convert_document_to_markdown(document_path, output_dir=None, overwrite: bool = False) -> Path:
+    document_path = Path(document_path)
+    output_dir = Path(output_dir or config.MARKDOWN_DIR)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    raw_path = str(document_path)
+    if _looks_like_uri(raw_path):
+        raise ValueError(f"Remote documents are not supported: {raw_path}")
+    if not document_path.is_file():
+        raise ValueError(f"Document is not a local file: {document_path}")
+    if not is_supported_document(document_path):
+        raise ValueError(f"Unsupported document type: {document_path.suffix}")
+
+    md_path = (output_dir / document_path.stem).with_suffix(".md")
+    if md_path.exists() and not overwrite:
+        return md_path
+
+    if document_path.suffix.lower() == ".md":
+        markdown_text = document_path.read_text(encoding="utf-8")
+    else:
+        markdown_text = _convert_with_markitdown(document_path)
+
+    markdown_text = _normalize_markdown(markdown_text)
+    if not markdown_text.strip():
+        raise ValueError(f"Converted Markdown is empty: {document_path.name}")
+
+    md_path.write_bytes(markdown_text.encode("utf-8"))
+    return md_path
+
+
+def documents_to_markdowns(path_pattern_or_paths, overwrite: bool = False):
     output_dir = Path(config.MARKDOWN_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for pdf_path in map(Path, glob.glob(path_pattern)):
-        md_path = (output_dir / pdf_path.stem).with_suffix(".md")
-        if overwrite or not md_path.exists():
-            pdf_to_markdown(pdf_path, output_dir)
+    if isinstance(path_pattern_or_paths, (str, Path)):
+        paths = glob.glob(str(path_pattern_or_paths))
+    else:
+        paths = path_pattern_or_paths
+
+    markdown_paths = []
+    for document_path in map(Path, paths):
+        markdown_paths.append(convert_document_to_markdown(document_path, output_dir, overwrite=overwrite))
+    return markdown_paths
+
+
+def pdf_to_markdown(pdf_path, output_dir):
+    """Compatibility wrapper; new ingestion uses convert_document_to_markdown."""
+    return convert_document_to_markdown(pdf_path, output_dir, overwrite=True)
+
+
+def pdfs_to_markdowns(path_pattern, overwrite: bool = False):
+    """Compatibility wrapper; new ingestion uses documents_to_markdowns."""
+    return documents_to_markdowns(path_pattern, overwrite=overwrite)
 
 def estimate_context_tokens(messages: list) -> int:
     try:

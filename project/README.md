@@ -78,11 +78,11 @@ PDF → Markdown Conversion → Parent/Child Chunking → Vector Indexing → Ag
 | File | Purpose |
 |------|---------|
 | `project/ingestion/document_manager.py` | Document ingestion pipeline (convert, chunk, index) |
-| `project/ingestion/conversion.py` | PDF to Markdown conversion and context token estimation |
+| `project/ingestion/conversion.py` | MarkItDown document conversion and context token estimation |
 | `project/ingestion/cleaning.py` | Markdown page parsing and cleanup |
 | `project/ingestion/chunking.py` | Parent/child splitting logic with cleaning and merging rules |
-| `project/ingestion/image_describer.py` | Local VLM image captioning for exported PDF images |
-| `project/ingestion/index_manifest.py` | Page-level incremental indexing manifest |
+| `project/ingestion/image_describer.py` | Legacy local VLM image captioning for exported PDF images |
+| `project/ingestion/index_manifest.py` | Document indexing manifest |
 
 ### Storage & Retrieval
 
@@ -122,7 +122,7 @@ All primary settings are in `project/config.py`. Key parameters:
 ### Directory Configuration
 
 ```python
-MARKDOWN_DIR = "runtime/markdown_docs"        # Storage for converted PDF → Markdown files
+MARKDOWN_DIR = "runtime/markdown_docs"        # Storage for converted Markdown files
 PARENT_STORE_PATH = "runtime/parent_store"    # File-backed storage for parent chunks
 QDRANT_DB_PATH = "runtime/qdrant_db"          # Local Qdrant vector database path
 ```
@@ -172,7 +172,7 @@ HEADERS_TO_SPLIT_ON = [
 ]
 ```
 
-### Multimodal PDF Ingestion (Optional)
+### Legacy Multimodal PDF Ingestion
 
 ```python
 DOCUMENT_IMAGE_DIR = "document_images"      # Exported PDF picture regions
@@ -186,7 +186,7 @@ LOCAL_VLM_API_KEY = "EMPTY"
 LOCAL_VLM_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
 ```
 
-When `VLM_IMAGE_CAPTION_ENABLED=true`, Markdown image references are sent to a local OpenAI-compatible vision model. The generated OCR text and image description are inserted back into the Markdown before chunking, so the existing text retrieval pipeline can search image content.
+The current MarkItDown ingestion path does not use these legacy PDF image extraction settings. Image and embedded media handling should be configured through MarkItDown-specific capabilities in future work.
 
 ### Langfuse Observability (Optional)
 

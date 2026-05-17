@@ -59,13 +59,14 @@ class DocumentChunker:
     def __create_page_aware_parent_chunk_groups(self, markdown_text, doc_path, page_numbers=None):
         """Split only selected pages, keeping contiguous pages together for merging."""
         selected_pages = {int(page) for page in page_numbers} if page_numbers else None
+        source_file = f"{doc_path.stem}.md"
         if not config.MARKDOWN_CLEANING_ENABLED:
-            pages = parse_pages(markdown_text, source_file=f"{doc_path.stem}.pdf")
+            pages = parse_pages(markdown_text, source_file=source_file)
             return self.__split_pages_into_parent_groups(pages, doc_path, selected_pages, use_cleaned_text=False)
 
         cleaned = clean_markdown_text(
             markdown_text,
-            source_file=f"{doc_path.stem}.pdf",
+            source_file=source_file,
             scan_lines=config.HEADER_FOOTER_SCAN_LINES,
             min_repeat_pages=config.MIN_REPEAT_PAGES,
             min_repeat_ratio=config.MIN_REPEAT_RATIO,
@@ -89,12 +90,14 @@ class DocumentChunker:
                     continue
 
                 for chunk in page_chunks:
-                    chunk.metadata.update({
-                        "source_file": f"{doc_path.stem}.pdf",
-                        "page_number": page.page_number,
-                        "page_numbers": [page.page_number] if page.page_number is not None else [1],
+                    metadata = {
+                        "source_file": f"{doc_path.stem}.md",
                         "slide_title": page.slide_title,
-                    })
+                    }
+                    if page.page_number is not None:
+                        metadata["page_number"] = page.page_number
+                        metadata["page_numbers"] = [page.page_number]
+                    chunk.metadata.update(metadata)
                 parent_chunks.extend(page_chunks)
 
             if parent_chunks:
@@ -249,8 +252,8 @@ class DocumentChunker:
             parent_counts_by_page[start_page] += 1
             parent_id = f"{doc_path.stem}_page_{start_page}_parent_{local_parent_index}"
             p_chunk.metadata.update({
-                "source": str(doc_path.stem)+".pdf",
-                "source_file": str(doc_path.stem)+".pdf",
+                "source": str(doc_path.stem)+".md",
+                "source_file": str(doc_path.stem)+".md",
                 "parent_id": parent_id,
                 "chunk_index": len(all_parent_pairs),
                 "doc_id": doc_path.stem,

@@ -183,7 +183,7 @@ Additional details, extended explanations, and Langfuse observability (LLM call 
 |------|-------------|
 | 1 | [Initial Setup and Configuration](#step-1-initial-setup-and-configuration) |
 | 2 | [Configure Vector Database](#step-2-configure-vector-database) |
-| 3 | [PDFs to Markdown](#step-3-pdfs-to-markdown) |
+| 3 | [Documents to Markdown](#step-3-documents-to-markdown) |
 | 4 | [Hierarchical Document Indexing](#step-4-hierarchical-document-indexing) |
 | 5 | [Define Agent Tools](#step-5-define-agent-tools) |
 | 6 | [Define System Prompts](#step-6-define-system-prompts) |
@@ -204,8 +204,8 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_qdrant.fastembed_sparse import FastEmbedSparse
 from qdrant_client import QdrantClient
 
-DOCS_DIR = "docs"  # Directory containing your pdf files
-MARKDOWN_DIR = "runtime/markdown_docs" # Directory containing the pdfs converted to markdown
+DOCS_DIR = "docs"  # Directory containing your pdf, md, docx, and pptx files
+MARKDOWN_DIR = "runtime/markdown_docs" # Directory containing converted markdown files
 PARENT_STORE_PATH = "runtime/parent_store"  # Directory for parent chunk JSON files
 CHILD_COLLECTION = "document_child_chunks"
 
@@ -251,36 +251,42 @@ def ensure_collection(collection_name):
 
 ---
 
-### Step 3: PDFs to Markdown
+### Step 3: Documents to Markdown
 
-Convert the PDFs to Markdown. For more details about other techniques use this companion [notebook](notebooks/pdf_to_markdown.ipynb).
+Convert supported local documents to Markdown with MarkItDown. The first supported batch is `.pdf`, `.md`, `.docx`, and `.pptx`; URL and ZIP inputs are intentionally disabled.
 
 ```python
-import os
-import pymupdf.layout
-import pymupdf4llm
 from pathlib import Path
 import glob
+from markitdown import MarkItDown
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+SUPPORTED_DOCUMENT_EXTENSIONS = {".pdf", ".md", ".docx", ".pptx"}
 
-def pdf_to_markdown(pdf_path, output_dir):
-    doc = pymupdf.open(pdf_path)
-    md = pymupdf4llm.to_markdown(doc, header=False, footer=False, page_separators=True, ignore_images=True, write_images=False, image_path=None)
-    md_cleaned = md.encode('utf-8', errors='surrogatepass').decode('utf-8', errors='ignore')
-    output_path = Path(output_dir) / Path(doc.name).stem
-    Path(output_path).with_suffix(".md").write_bytes(md_cleaned.encode('utf-8'))
+def document_to_markdown(document_path, output_dir):
+    document_path = Path(document_path)
+    if document_path.suffix.lower() not in SUPPORTED_DOCUMENT_EXTENSIONS:
+        raise ValueError(f"Unsupported document type: {document_path.suffix}")
 
-def pdfs_to_markdowns(path_pattern, overwrite: bool = False):
+    output_path = (Path(output_dir) / document_path.stem).with_suffix(".md")
+    if document_path.suffix.lower() == ".md":
+        md = document_path.read_text(encoding="utf-8")
+    else:
+        md = MarkItDown().convert_local(document_path).text_content
+
+    md_cleaned = md.encode("utf-8", errors="surrogatepass").decode("utf-8", errors="ignore")
+    output_path.write_text(md_cleaned, encoding="utf-8")
+
+def documents_to_markdowns(path_pattern, overwrite: bool = False):
     output_dir = Path(MARKDOWN_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for pdf_path in map(Path, glob.glob(path_pattern)):
-        md_path = (output_dir / pdf_path.stem).with_suffix(".md")
+    for document_path in map(Path, glob.glob(path_pattern)):
+        md_path = (output_dir / document_path.stem).with_suffix(".md")
         if overwrite or not md_path.exists():
-            pdf_to_markdown(pdf_path, output_dir)
+            document_to_markdown(document_path, output_dir)
 
-pdfs_to_markdowns(f"{DOCS_DIR}/*.pdf")
+for extension in SUPPORTED_DOCUMENT_EXTENSIONS:
+    documents_to_markdowns(f"{DOCS_DIR}/*{extension}")
 ```
 
 ---
@@ -424,7 +430,7 @@ def index_documents():
 
         for i, p_chunk in enumerate(cleaned_parents):
             parent_id = f"{doc_path.stem}_parent_{i}"
-            p_chunk.metadata.update({"source": doc_path.stem + ".pdf", "parent_id": parent_id})
+            p_chunk.metadata.update({"source": doc_path.name, "parent_id": parent_id})
             all_parent_pairs.append((parent_id, p_chunk))
             children = child_splitter.split_documents([p_chunk])
             all_child_chunks.extend(children)
@@ -527,7 +533,7 @@ Include:
 - Main topics discussed
 - Important facts or entities mentioned
 - Any unresolved questions if applicable
-- Sources file name (e.g., file1.pdf) or documents referenced
+- Sources file name (e.g., file1.md) or documents referenced
 
 Exclude:
 - Greetings, misunderstandings, off-topic content.
@@ -649,7 +655,7 @@ Formatting:
 
 Sources section rules:
 - Include a "---\\n**Sources:**\\n" section at the end, followed by a bulleted list of file names.
-- List ONLY entries that have a real file extension (e.g. ".pdf", ".docx", ".txt").
+- List ONLY entries that have a real file extension (e.g. ".md", ".docx", ".txt").
 - Any entry without a file extension is an internal chunk identifier — discard it entirely, never include it.
 - Deduplicate: if the same file appears multiple times, list it only once.
 - If no valid file names are present, omit the Sources section entirely.
@@ -673,7 +679,7 @@ Rules:
 2. Preserve exact figures, names, versions, technical terms, and configuration details.
 3. Remove duplicated, irrelevant, or administrative details.
 4. Do NOT include search queries, parent IDs, chunk IDs, or internal identifiers.
-5. Organize all findings by source file. Each file section MUST start with: ### filename.pdf
+5. Organize all findings by source file. Each file section MUST start with a real source file name, such as: ### filename.md
 6. Highlight missing or unresolved information in a dedicated "Gaps" section.
 7. Limit the summary to roughly 400-600 words. If content exceeds this, prioritize critical facts and structured data.
 8. Do not explain your reasoning; output only structured content in Markdown.
@@ -687,7 +693,7 @@ Required Structure:
 
 ## Structured Findings
 
-### filename.pdf
+### filename.md
 - Directly relevant facts
 - Supporting context (if needed)
 

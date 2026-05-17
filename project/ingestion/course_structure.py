@@ -167,6 +167,26 @@ class CourseStructureStore:
             return []
         return sorted(set(course.get("documents", [])))
 
+    def remove_document(self, source_file: str, markdown_dir: str | Path | None = None) -> list[str]:
+        affected_courses = []
+        for course_id, course in self.data.get("courses", {}).items():
+            documents = [doc for doc in course.get("documents", []) if doc != source_file]
+            had_document = len(documents) != len(course.get("documents", []))
+            had_sections = any(
+                section.get("source_file") == source_file
+                for section in course.get("sections", [])
+            )
+            if not had_document and not had_sections:
+                continue
+
+            course["documents"] = documents
+            self.rebuild_course(course_id, markdown_dir=markdown_dir, save=False)
+            affected_courses.append(course.get("name", course_id))
+
+        if affected_courses:
+            self.save()
+        return affected_courses
+
     def rebuild_course(self, course_id: str, markdown_dir: str | Path | None = None, save: bool = True) -> bool:
         course = self.get_course(course_id)
         if not course:

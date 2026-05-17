@@ -78,11 +78,11 @@ PDF → Markdown 转换 → 父/子分块 → 向量索引 → Agent 检索 → 
 | 文件 | 作用 |
 |------|------|
 | `project/ingestion/document_manager.py` | 文档摄取流水线（转换、分块、索引） |
-| `project/ingestion/conversion.py` | PDF 转 Markdown 以及上下文 token 估算 |
+| `project/ingestion/conversion.py` | MarkItDown 文档转换以及上下文 token 估算 |
 | `project/ingestion/cleaning.py` | Markdown 页解析与清洗 |
 | `project/ingestion/chunking.py` | 父子分块逻辑，包含清洗与合并规则 |
-| `project/ingestion/image_describer.py` | 针对 PDF 导出图片的本地 VLM 识别与说明 |
-| `project/ingestion/index_manifest.py` | 页级增量索引 manifest |
+| `project/ingestion/image_describer.py` | 旧版 PDF 导出图片的本地 VLM 识别与说明 |
+| `project/ingestion/index_manifest.py` | 文档索引 manifest |
 
 ### 存储与检索
 
@@ -122,7 +122,7 @@ PDF → Markdown 转换 → 父/子分块 → 向量索引 → Agent 检索 → 
 ### 目录配置
 
 ```python
-MARKDOWN_DIR = "runtime/markdown_docs"        # 转换后的 PDF → Markdown 文件存储目录
+MARKDOWN_DIR = "runtime/markdown_docs"        # 转换后的 Markdown 文件存储目录
 PARENT_STORE_PATH = "runtime/parent_store"    # 基于文件的父块存储目录
 QDRANT_DB_PATH = "runtime/qdrant_db"          # 本地 Qdrant 向量数据库路径
 ```
@@ -184,11 +184,11 @@ HEADERS_TO_SPLIT_ON = [
 ]
 ```
 
-### 多模态 PDF 摄取（可选）
+### 旧版多模态 PDF 摄取
 
 ```python
 DOCUMENT_IMAGE_DIR = "document_images"      # PDF 图片导出目录
-PDF_EXTRACT_IMAGES = True                   # PDF 转 Markdown 时保存图片
+PDF_EXTRACT_IMAGES = True                   # 旧版 PDF 转 Markdown 时保存图片
 PDF_IMAGE_DPI = 150
 PDF_IMAGE_FORMAT = "png"
 
@@ -198,7 +198,7 @@ LOCAL_VLM_API_KEY = "EMPTY"
 LOCAL_VLM_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
 ```
 
-当 `VLM_IMAGE_CAPTION_ENABLED=true` 时，Markdown 中的图片引用会发送给本地 OpenAI-compatible 视觉模型。模型输出的 OCR 文本和图片说明会写回 Markdown，再进入现有分块、向量化和检索流程。
+当前 MarkItDown 摄取链路不再使用这些旧版 PDF 图片提取配置。图片和嵌入媒体处理后续应通过 MarkItDown 相关能力单独配置。
 
 ### Langfuse 可观测性（可选）
 

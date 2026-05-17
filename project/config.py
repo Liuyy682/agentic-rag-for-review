@@ -21,6 +21,7 @@ MARKDOWN_CLEANED_DIR = os.path.join(_RUNTIME_DIR, "markdown_docs_cleaned")
 MARKDOWN_CLEANING_LOG_DIR = os.path.join(_RUNTIME_DIR, "markdown_cleaning_logs")
 MARKDOWN_CLEANING_DIFF_DIR = os.path.join(_RUNTIME_DIR, "markdown_cleaning_diffs")
 DOCUMENT_IMAGE_DIR = os.path.join(_RUNTIME_DIR, "document_images")
+INGESTION_LOG_DIR = os.path.join(_RUNTIME_DIR, "ingestion_logs")
 PARENT_STORE_PATH = os.path.join(_RUNTIME_DIR, "parent_store")
 QDRANT_DB_PATH = os.path.join(_RUNTIME_DIR, "qdrant_db")
 EVALUATION_REPORTS_DIR = os.path.join(_RUNTIME_DIR, "evaluation_reports")
@@ -84,13 +85,24 @@ HEADER_FOOTER_SCAN_LINES = 3
 MIN_REPEAT_PAGES = 3
 MIN_REPEAT_RATIO = 0.3
 
-# --- Multimodal Document Ingestion ---
 def _env_bool(name: str, default: bool = False) -> bool:
     value = os.environ.get(name)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
+# --- Document Conversion ---
+DOCUMENT_CONVERTER = os.environ.get("DOCUMENT_CONVERTER", "markitdown")
+SUPPORTED_DOCUMENT_EXTENSIONS = [
+    item.strip().lower()
+    for item in os.environ.get("SUPPORTED_DOCUMENT_EXTENSIONS", ".pdf,.md,.docx,.pptx").split(",")
+    if item.strip()
+]
+PAGE_LEVEL_INCREMENTAL_INDEXING = _env_bool("PAGE_LEVEL_INCREMENTAL_INDEXING", False)
+INGESTION_SKIP_UNCHANGED_FILES = _env_bool("INGESTION_SKIP_UNCHANGED_FILES", True)
+INGESTION_STAGE_LOG_ENABLED = _env_bool("INGESTION_STAGE_LOG_ENABLED", True)
+
+# --- Multimodal Document Ingestion ---
 PDF_EXTRACT_IMAGES = _env_bool("PDF_EXTRACT_IMAGES", True)
 PDF_IMAGE_DPI = int(os.environ.get("PDF_IMAGE_DPI", "150"))
 PDF_IMAGE_FORMAT = os.environ.get("PDF_IMAGE_FORMAT", "png")

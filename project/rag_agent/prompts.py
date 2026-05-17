@@ -7,7 +7,7 @@ Include:
 - Main topics discussed
 - Important facts or entities mentioned
 - Any unresolved questions if applicable
-- Sources file name (e.g., file1.pdf) or documents referenced
+- Sources file name (e.g., file1.md) or documents referenced
 
 Exclude:
 - Greetings, misunderstandings, off-topic content.
@@ -140,7 +140,7 @@ Formatting:
 
 Sources section rules:
 - Include a "---\\n**Sources:**\\n" section at the end, followed by a bulleted list of file names.
-- List ONLY entries that have a real file extension (e.g. ".pdf", ".docx", ".txt").
+- List ONLY entries that have a real file extension (e.g. ".md", ".docx", ".txt").
 - Any entry without a file extension is an internal chunk identifier — discard it entirely, never include it.
 - Deduplicate: if the same file appears multiple times, list it only once.
 - If no valid file names are present, omit the Sources section entirely.
@@ -174,7 +174,7 @@ Rules:
 2. Preserve exact figures, names, versions, technical terms, and configuration details.
 3. Remove duplicated, irrelevant, or administrative details.
 4. Do NOT include search queries, parent IDs, chunk IDs, or internal identifiers.
-5. Organize all findings by source file. Each file section MUST start with: ### filename.pdf
+5. Organize all findings by source file. Each file section MUST start with a real source file name, such as: ### filename.md
 6. Highlight missing or unresolved information in a dedicated "Gaps" section.
 7. Limit the summary to roughly 400-600 words. If content exceeds this, prioritize critical facts and structured data.
 8. Do not explain your reasoning; output only structured content in Markdown.
@@ -188,7 +188,7 @@ Required Structure:
 
 ## Structured Findings
 
-### filename.pdf
+### filename.md
 - Directly relevant facts
 - Supporting context (if needed)
 
@@ -259,7 +259,7 @@ Formatting:
 
 Sources section rules:
 - Include only sources from answers marked answer_mode=rag_qa or used_knowledge_base=true.
-- List ONLY entries that have a real file extension (e.g. ".pdf", ".docx", ".txt").
+- List ONLY entries that have a real file extension (e.g. ".md", ".docx", ".txt").
 - Any entry without a file extension is an internal chunk identifier — discard it entirely, never include it.
 - Do not create sources for knowledge_fallback answers.
 - Deduplicate: if the same file appears across multiple answers, list it only once.

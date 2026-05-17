@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
@@ -38,7 +39,7 @@ def import_ragbench(
     output_dataset: str,
     output_contexts: str,
     offset: int = 0,
-    page_size: int = 100,
+    page_size: int = 25,
 ) -> Dict[str, Any]:
     rows = fetch_ragbench_rows(subset=subset, split=split, limit=limit, offset=offset, page_size=page_size)
     eval_rows = [to_eval_question(row, subset, split) for row in rows]
@@ -59,7 +60,9 @@ def fetch_ragbench_rows(
     split: str,
     limit: int,
     offset: int = 0,
-    page_size: int = 100,
+    page_size: int = 25,
+    max_attempts: int = 5,
+    request_timeout: int = 60,
 ) -> List[Dict[str, Any]]:
     if subset not in RAGBENCH_SUBSETS:
         raise ValueError(f"Unknown RAGBench subset: {subset}. Choose one of: {', '.join(RAGBENCH_SUBSETS)}")
@@ -78,14 +81,48 @@ def fetch_ragbench_rows(
             "offset": offset + len(rows),
             "length": length,
         }
-        response = requests.get(HF_ROWS_URL, params=params, timeout=60)
-        response.raise_for_status()
+        response = _get_with_retries(
+            HF_ROWS_URL,
+            params=params,
+            timeout=request_timeout,
+            max_attempts=max_attempts,
+        )
         payload = response.json()
         page_rows = [item["row"] for item in payload.get("rows", [])]
         if not page_rows:
             break
         rows.extend(page_rows)
     return rows[:limit]
+
+
+def _get_with_retries(
+    url: str,
+    params: Dict[str, Any],
+    timeout: int,
+    max_attempts: int,
+) -> requests.Response:
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = requests.get(url, params=params, timeout=timeout)
+            response.raise_for_status()
+            return response
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt == max_attempts:
+                break
+            delay = min(2 ** (attempt - 1), 30)
+            print(
+                f"RAGBench fetch failed (attempt {attempt}/{max_attempts}, "
+                f"offset={params.get('offset')}, length={params.get('length')}): {exc}. "
+                f"Retrying in {delay}s...",
+                flush=True,
+            )
+            time.sleep(delay)
+    raise RuntimeError(
+        f"Could not fetch RAGBench rows after {max_attempts} attempts "
+        f"(offset={params.get('offset')}, length={params.get('length')})."
+    ) from last_error
 
 
 def to_eval_question(row: Dict[str, Any], subset: str, split: str) -> Dict[str, Any]:
@@ -154,7 +191,7 @@ def main() -> None:
     parser.add_argument("--split", default="test", choices=["train", "validation", "test"])
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--offset", type=int, default=0)
-    parser.add_argument("--page-size", type=int, default=100)
+    parser.add_argument("--page-size", type=int, default=25)
     parser.add_argument(
         "--output-dataset",
         default=str(PROJECT_DIR / "evaluation" / "datasets" / "ragbench_eval_questions.jsonl"),
@@ -179,4 +216,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

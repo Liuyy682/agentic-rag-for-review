@@ -2,18 +2,18 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 PROJECT_DIR = Path(__file__).resolve().parents[1] / "project"
 sys.path.insert(0, str(PROJECT_DIR))
 
 import config
 from ingestion.document_manager import DocumentManager
+from ingestion.cleaning import clean_markdown_text
 from ingestion.index_manifest import (
     IndexManifest,
-    changed_pages,
-    close_rebuild_scope,
+    build_page_hashes,
     current_index_config,
-    expand_with_neighbors,
 )
 from storage.parent_store import ParentStoreManager
 from ingestion.chunking import DocumentChunker
@@ -103,37 +103,10 @@ class ConfigPatch:
 
 
 class TestPageIncrementalIndex(unittest.TestCase):
-    def test_changed_pages_expand_and_close_over_parent_pages(self):
-        document = {
-            "pages": {
-                "1": {"page_hash": "a"},
-                "2": {"page_hash": "b"},
-                "3": {"page_hash": "c"},
-                "4": {"page_hash": "d"},
-                "5": {"page_hash": "e"},
-            },
-            "parent_pages": {
-                "p1": [1],
-                "p2": [2, 3],
-                "p3": [4],
-                "p4": [5],
-            },
-        }
-        new_hashes = {"1": "a", "2": "b", "3": "changed", "4": "d", "5": "e"}
-
-        changed = changed_pages(document, new_hashes)
-        seed = expand_with_neighbors(changed, {1, 2, 3, 4, 5})
-        rebuild_pages, stale_parent_ids = close_rebuild_scope(document, seed, {1, 2, 3, 4, 5})
-
-        self.assertEqual(changed, {3})
-        self.assertEqual(seed, {2, 3, 4})
-        self.assertEqual(rebuild_pages, {2, 3, 4})
-        self.assertEqual(stale_parent_ids, {"p2", "p3"})
-
     def test_manifest_detects_config_mismatch(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             manifest = IndexManifest(Path(temp_dir) / "index_manifest.json")
-            manifest.data["documents"]["doc.pdf"] = {"pages": {}}
+            manifest.data["documents"]["doc.md"] = {"pages": {}}
             manifest.data["index_config"] = current_index_config()
             manifest.save()
 
@@ -146,15 +119,15 @@ class TestPageIncrementalIndex(unittest.TestCase):
     def test_parent_store_delete_many_removes_only_selected_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             store = ParentStoreManager(temp_dir)
-            store.save("p1", "one", {"source_file": "a.pdf"})
-            store.save("p2", "two", {"source_file": "a.pdf"})
+            store.save("p1", "one", {"source_file": "a.md"})
+            store.save("p2", "two", {"source_file": "a.md"})
 
             store.delete_many(["p1"])
 
             self.assertFalse((Path(temp_dir) / "p1.json").exists())
             self.assertTrue((Path(temp_dir) / "p2.json").exists())
 
-    def test_same_name_markdown_update_rebuilds_changed_page_window(self):
+    def test_same_name_markdown_update_rebuilds_whole_document(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             values = {
@@ -163,8 +136,12 @@ class TestPageIncrementalIndex(unittest.TestCase):
                 "MARKDOWN_CLEANING_LOG_DIR": str(temp_path / "logs"),
                 "MARKDOWN_CLEANING_DIFF_DIR": str(temp_path / "diffs"),
                 "DOCUMENT_IMAGE_DIR": str(temp_path / "images"),
+                "INGESTION_LOG_DIR": str(temp_path / "ingestion_logs"),
                 "PARENT_STORE_PATH": str(temp_path / "parents"),
+                "COURSE_STRUCTURE_PATH": str(temp_path / "course_structure.json"),
                 "MARKDOWN_CLEANING_ENABLED": False,
+                "INGESTION_SKIP_UNCHANGED_FILES": True,
+                "INGESTION_STAGE_LOG_ENABLED": False,
                 "MIN_PARENT_SIZE": 1,
                 "MAX_PARENT_SIZE": 2000,
                 "CHILD_CHUNK_SIZE": 1000,
@@ -189,20 +166,140 @@ class TestPageIncrementalIndex(unittest.TestCase):
                 added, skipped = manager.add_documents([str(source)])
 
                 self.assertEqual((added, skipped), (1, 0))
-                self.assertEqual(
-                    set(rag_system.vector_db.deleted_parent_ids),
-                    {
-                        "slides_page_2_parent_0",
-                        "slides_page_3_parent_0",
-                        "slides_page_4_parent_0",
-                    },
-                )
+                self.assertEqual(rag_system.vector_db.deleted_parent_ids, [])
+                self.assertEqual(rag_system.vector_db.deleted_source_files, ["slides.md", "slides.md"])
                 current_parent_ids = {
                     doc.metadata["parent_id"]
                     for doc in rag_system.vector_db.collection.documents
                 }
                 self.assertIn("slides_page_1_parent_0", current_parent_ids)
+                self.assertIn("slides_page_3_parent_0", current_parent_ids)
                 self.assertIn("slides_page_5_parent_0", current_parent_ids)
+                current_text = "\n".join(
+                    doc.page_content for doc in rag_system.vector_db.collection.documents
+                )
+                self.assertIn("page three changed", current_text)
+                self.assertNotIn("page three\n", current_text)
+
+    def test_docx_upload_converts_to_markdown_source_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            values = {
+                "MARKDOWN_DIR": str(temp_path / "markdown"),
+                "MARKDOWN_CLEANED_DIR": str(temp_path / "cleaned"),
+                "MARKDOWN_CLEANING_LOG_DIR": str(temp_path / "logs"),
+                "MARKDOWN_CLEANING_DIFF_DIR": str(temp_path / "diffs"),
+                "DOCUMENT_IMAGE_DIR": str(temp_path / "images"),
+                "INGESTION_LOG_DIR": str(temp_path / "ingestion_logs"),
+                "PARENT_STORE_PATH": str(temp_path / "parents"),
+                "COURSE_STRUCTURE_PATH": str(temp_path / "course_structure.json"),
+                "MARKDOWN_CLEANING_ENABLED": False,
+                "INGESTION_SKIP_UNCHANGED_FILES": True,
+                "INGESTION_STAGE_LOG_ENABLED": False,
+                "MIN_PARENT_SIZE": 1,
+                "MAX_PARENT_SIZE": 2000,
+                "CHILD_CHUNK_SIZE": 1000,
+                "CHILD_CHUNK_OVERLAP": 0,
+            }
+            with ConfigPatch(**values):
+                source = temp_path / "notes.docx"
+                source.write_bytes(b"fake")
+                rag_system = FakeRagSystem(config.PARENT_STORE_PATH)
+                manager = DocumentManager(rag_system)
+
+                with patch("ingestion.conversion._convert_with_markitdown", return_value="# Notes\n\nBody"):
+                    added, skipped = manager.add_documents([str(source)], course_names="Database Systems")
+
+                self.assertEqual((added, skipped), (1, 0))
+                self.assertEqual(manager.get_markdown_files(), ["notes.md"])
+                self.assertEqual(manager.course_store.source_files_for_course("Database Systems"), ["notes.md"])
+                self.assertTrue((Path(config.MARKDOWN_DIR) / "notes.md").exists())
+                self.assertEqual(rag_system.vector_db.collection.documents[0].metadata["source_file"], "notes.md")
+
+                manifest = IndexManifest()
+                document = manifest.get_document("notes.md")
+                self.assertEqual(document["source_file"], "notes.md")
+                self.assertEqual(document["original_file"], "notes.docx")
+
+    def test_cross_page_duplicate_heading_does_not_dirty_unchanged_page_hash(self):
+        old_markdown = """# Intro
+page one
+--- end of page.page_number=1 ---
+# Methods
+page two
+--- end of page.page_number=2 ---
+"""
+        new_markdown = """# Methods
+page one changed
+--- end of page.page_number=1 ---
+# Methods
+page two
+--- end of page.page_number=2 ---
+"""
+
+        old_hashes = build_page_hashes(clean_markdown_text(old_markdown, source_file="slides.md").pages)
+        new_hashes = build_page_hashes(clean_markdown_text(new_markdown, source_file="slides.md").pages)
+
+        self.assertNotEqual(old_hashes["1"], new_hashes["1"])
+        self.assertEqual(old_hashes["2"], new_hashes["2"])
+
+    def test_page_rebuild_keeps_cross_page_repeated_heading_as_chunk_boundary(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            values = {
+                "MARKDOWN_CLEANED_DIR": str(temp_path / "cleaned"),
+                "MARKDOWN_CLEANING_LOG_DIR": str(temp_path / "logs"),
+                "MARKDOWN_CLEANING_DIFF_DIR": str(temp_path / "diffs"),
+                "MARKDOWN_CLEANING_ENABLED": True,
+                "MIN_PARENT_SIZE": 1,
+                "MAX_PARENT_SIZE": 2000,
+                "CHILD_CHUNK_SIZE": 1000,
+                "CHILD_CHUNK_OVERLAP": 0,
+            }
+            with ConfigPatch(**values):
+                source = temp_path / "slides.md"
+                source.write_text(
+                    """# Shared Section
+page one
+--- end of page.page_number=1 ---
+# Shared Section
+page two
+--- end of page.page_number=2 ---
+""",
+                    encoding="utf-8",
+                )
+
+                parent_chunks, _ = DocumentChunker().create_chunks_single(source, page_numbers=[2])
+
+                self.assertEqual(len(parent_chunks), 1)
+                self.assertTrue(parent_chunks[0][1].page_content.startswith("# Shared Section"))
+                self.assertEqual(parent_chunks[0][1].metadata["page_numbers"], [2])
+
+    def test_markdown_without_page_markers_omits_page_metadata(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            values = {
+                "MARKDOWN_CLEANED_DIR": str(temp_path / "cleaned"),
+                "MARKDOWN_CLEANING_LOG_DIR": str(temp_path / "logs"),
+                "MARKDOWN_CLEANING_DIFF_DIR": str(temp_path / "diffs"),
+                "MARKDOWN_CLEANING_ENABLED": False,
+                "MIN_PARENT_SIZE": 1,
+                "MAX_PARENT_SIZE": 2000,
+                "CHILD_CHUNK_SIZE": 1000,
+                "CHILD_CHUNK_OVERLAP": 0,
+            }
+            with ConfigPatch(**values):
+                source = temp_path / "notes.md"
+                source.write_text("# Notes\n\nNo physical page number.", encoding="utf-8")
+
+                parent_chunks, child_chunks = DocumentChunker().create_chunks_single(source)
+
+                self.assertTrue(parent_chunks)
+                metadata = parent_chunks[0][1].metadata
+                self.assertEqual(metadata["source_file"], "notes.md")
+                self.assertNotIn("page_number", metadata)
+                self.assertNotIn("page_numbers", metadata)
+                self.assertEqual(child_chunks[0].metadata["source_file"], "notes.md")
 
 
 if __name__ == "__main__":

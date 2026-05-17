@@ -5,12 +5,11 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
 
 import config
 
 
-INDEX_SCHEMA_VERSION = 1
+INDEX_SCHEMA_VERSION = 3
 
 
 def _stable_json_hash(value) -> str:
@@ -23,7 +22,7 @@ def text_hash(text: str) -> str:
 
 
 def current_index_config() -> dict:
-    """Return the index-affecting settings that make local page updates safe."""
+    """Return the settings that affect generated chunks and stored vectors."""
     chunker_config = {
         "headers_to_split_on": config.HEADERS_TO_SPLIT_ON,
         "min_parent_size": config.MIN_PARENT_SIZE,
@@ -42,9 +41,15 @@ def current_index_config() -> dict:
         "sparse_model": config.SPARSE_MODEL,
         "sparse_vector_name": config.SPARSE_VECTOR_NAME,
     }
+    converter_config = {
+        "document_converter": getattr(config, "DOCUMENT_CONVERTER", "markitdown"),
+        "supported_document_extensions": getattr(config, "SUPPORTED_DOCUMENT_EXTENSIONS", [".pdf", ".md", ".docx", ".pptx"]),
+    }
     return {
+        "document_converter": converter_config["document_converter"],
         "dense_model": config.DENSE_MODEL,
         "sparse_model": config.SPARSE_MODEL,
+        "converter_config_hash": _stable_json_hash(converter_config),
         "chunker_config_hash": _stable_json_hash(chunker_config),
         "cleaner_config_hash": _stable_json_hash(cleaner_config),
         "embedding_config_hash": _stable_json_hash(embedding_config),
@@ -70,104 +75,18 @@ def build_page_hashes(pages) -> dict[str, str]:
     }
 
 
-def changed_pages(old_document: dict, new_page_hashes: dict[str, str]) -> set[int]:
-    """Compare old and new page hashes; added and removed pages count as changed."""
-    old_pages = old_document.get("pages", {})
-    page_numbers = set(old_pages.keys()) | set(new_page_hashes.keys())
-    changed: set[int] = set()
-    for page_number in page_numbers:
-        old_hash = old_pages.get(page_number, {}).get("page_hash")
-        if old_hash != new_page_hashes.get(page_number):
-            changed.add(normalize_page_number(page_number))
-    return changed
-
-
-def expand_with_neighbors(page_numbers: Iterable[int], available_pages: Iterable[int]) -> set[int]:
-    """Include adjacent pages so overlap and cross-page parent chunks are refreshed."""
-    available = set(available_pages)
-    expanded: set[int] = set()
-    for page_number in page_numbers:
-        for candidate in (page_number - 1, page_number, page_number + 1):
-            if candidate in available:
-                expanded.add(candidate)
-    return expanded
-
-
-def stale_parent_ids(document: dict, affected_pages: Iterable[int]) -> set[str]:
-    """Find existing parents whose recorded source pages overlap the rebuild window."""
-    affected = set(affected_pages)
-    stale: set[str] = set()
-    for parent_id, page_numbers in document.get("parent_pages", {}).items():
-        if affected.intersection(normalize_page_number(page) for page in page_numbers):
-            stale.add(parent_id)
-    return stale
-
-
-def close_rebuild_scope(document: dict, seed_pages: Iterable[int], available_pages: Iterable[int]) -> tuple[set[int], set[str]]:
-    """Expand rebuild pages until every stale cross-page parent is fully covered."""
-    seed = set(seed_pages)
-    available = set(available_pages)
-    rebuild_pages = seed.intersection(available)
-    stale_ids: set[str] = set()
-
-    changed = True
-    while changed:
-        changed = False
-        current_stale = stale_parent_ids(document, rebuild_pages | seed)
-        if not current_stale.issubset(stale_ids):
-            stale_ids |= current_stale
-            changed = True
-
-        for parent_id in current_stale:
-            for page_number in document.get("parent_pages", {}).get(parent_id, []):
-                normalized = normalize_page_number(page_number)
-                if normalized in available and normalized not in rebuild_pages:
-                    rebuild_pages.add(normalized)
-                    changed = True
-
-    return rebuild_pages, stale_ids
-
-
-def remove_parent_ids(document: dict, parent_ids: Iterable[str], new_page_hashes: dict[str, str]) -> dict:
-    """Drop stale parent/child references while preserving unaffected page records."""
-    removed = set(parent_ids)
-    next_document = dict(document)
-    next_document["pages"] = {}
-    for page_number, page_data in document.get("pages", {}).items():
-        if page_number not in new_page_hashes:
-            continue
-        retained_parent_ids = [pid for pid in page_data.get("parent_ids", []) if pid not in removed]
-        child_ids = [cid for cid in page_data.get("child_ids", []) if _child_parent_id(cid) not in removed]
-        next_document["pages"][page_number] = {
-            "page_hash": new_page_hashes[page_number],
-            "parent_ids": retained_parent_ids,
-            "child_ids": child_ids,
-        }
-    next_document["parent_pages"] = {
-        pid: pages
-        for pid, pages in document.get("parent_pages", {}).items()
-        if pid not in removed
-    }
-    return next_document
-
-
-def _child_parent_id(child_id: str) -> str:
-    marker = "_child_"
-    if marker not in child_id:
-        return ""
-    return child_id.rsplit(marker, 1)[0]
-
-
 def add_chunks_to_document(
     document: dict,
     parent_chunks: list,
     child_chunks: list,
     new_page_hashes: dict[str, str],
 ) -> dict:
-    """Attach newly written chunks to each page they cover in the manifest."""
+    """Attach written chunks to the document manifest record."""
     next_document = dict(document)
     next_document.setdefault("pages", {})
     next_document.setdefault("parent_pages", {})
+    parent_ids = []
+    child_ids = []
 
     for page_number, page_hash in new_page_hashes.items():
         next_document["pages"].setdefault(
@@ -177,6 +96,7 @@ def add_chunks_to_document(
         next_document["pages"][page_number]["page_hash"] = page_hash
 
     for parent_id, parent_doc in parent_chunks:
+        parent_ids.append(parent_id)
         pages = _metadata_pages(parent_doc.metadata)
         next_document["parent_pages"][parent_id] = pages
         for page_number in pages:
@@ -191,14 +111,20 @@ def add_chunks_to_document(
         child_id = child_doc.metadata.get("chunk_id")
         if not child_id:
             continue
+        child_ids.append(child_id)
         for page_number in _metadata_pages(child_doc.metadata):
             page_key = str(page_number)
             if page_key not in next_document["pages"]:
                 continue
-            child_ids = next_document["pages"][page_key]["child_ids"]
-            if child_id not in child_ids:
-                child_ids.append(child_id)
+            page_data = next_document["pages"][page_key]
+            page_child_ids = page_data["child_ids"]
+            if child_id not in page_child_ids:
+                page_data["child_ids"].append(child_id)
 
+    next_document["parent_ids"] = parent_ids
+    next_document["child_ids"] = child_ids
+    next_document["parent_count"] = len(parent_ids)
+    next_document["child_count"] = len(child_ids)
     return next_document
 
 
@@ -210,37 +136,38 @@ def build_document_record(
     page_hashes: dict[str, str],
     parent_chunks: list,
     child_chunks: list,
+    original_file: str | None = None,
+    source_path: str | Path | None = None,
+    raw_file_hash: str | None = None,
+    markdown_hash: str | None = None,
+    original_extension: str | None = None,
+    last_result: dict | None = None,
+    created_at: str | None = None,
 ) -> dict:
     """Create the initial manifest entry after a full document index."""
+    markdown_hash = markdown_hash or text_hash(markdown_text)
     document = {
         "doc_id": doc_id,
         "source_file": source_file,
+        "original_file": original_file or source_file,
+        "original_extension": original_extension or Path(original_file or source_file).suffix.lower(),
+        "source_path": str(source_path) if source_path else None,
+        "converter": getattr(config, "DOCUMENT_CONVERTER", "markitdown"),
         "markdown_path": str(markdown_path),
-        "document_hash": text_hash(markdown_text),
+        "raw_file_hash": raw_file_hash,
+        "markdown_hash": markdown_hash,
+        "document_hash": markdown_hash,
+        "status": "success",
         "pages": {
             page_number: {"page_hash": page_hash, "parent_ids": [], "child_ids": []}
             for page_number, page_hash in page_hashes.items()
         },
         "parent_pages": {},
+        "last_result": last_result or {},
+        "created_at": created_at or _utc_now(),
         "updated_at": _utc_now(),
     }
     return add_chunks_to_document(document, parent_chunks, child_chunks, page_hashes)
-
-
-def refresh_document_record(
-    document: dict,
-    markdown_text: str,
-    new_page_hashes: dict[str, str],
-    stale_parent_ids: Iterable[str],
-    parent_chunks: list,
-    child_chunks: list,
-) -> dict:
-    """Replace stale chunk references with the chunks created by the local rebuild."""
-    next_document = remove_parent_ids(document, stale_parent_ids, new_page_hashes)
-    next_document = add_chunks_to_document(next_document, parent_chunks, child_chunks, new_page_hashes)
-    next_document["document_hash"] = text_hash(markdown_text)
-    next_document["updated_at"] = _utc_now()
-    return next_document
 
 
 def _metadata_pages(metadata: dict) -> list[int]:
@@ -286,8 +213,22 @@ class IndexManifest:
     def get_document(self, source_file: str) -> dict | None:
         return self.data.get("documents", {}).get(source_file)
 
+    def list_documents(self) -> list[dict]:
+        return list(self.data.get("documents", {}).values())
+
     def set_document(self, source_file: str, document: dict) -> None:
         self.data.setdefault("documents", {})[source_file] = document
+
+    def remove_document(self, source_file: str) -> dict | None:
+        return self.data.setdefault("documents", {}).pop(source_file, None)
+
+    def update_document_result(self, source_file: str, last_result: dict) -> bool:
+        document = self.get_document(source_file)
+        if not document:
+            return False
+        document["last_result"] = last_result
+        document["updated_at"] = _utc_now()
+        return True
 
     def save(self) -> None:
         """Write through a temp file so interrupted saves do not corrupt the manifest."""
