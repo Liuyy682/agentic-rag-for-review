@@ -11,8 +11,8 @@ if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
 import config
-from storage.vector_store import VectorDbManager
-from storage.parent_store import ParentStoreManager
+from storage.pg_vector_store import PgVectorManager
+from storage.pg_parent_store import PgParentStoreManager
 from evaluation.data import EvalQuestion
 from evaluation.io import config_snapshot, make_run_id, write_jsonl, write_metrics_csv
 from evaluation.llm_config import answer_model as resolve_answer_model
@@ -76,13 +76,13 @@ def run_ragbench_local_rag_eval(
     parent_store_dir = Path(config.PARENT_STORE_PATH)
     if parent_store_dir.exists():
         shutil.rmtree(parent_store_dir)
-    vector_db = VectorDbManager()
+    vector_db = PgVectorManager()
     vector_db.delete_collection(collection_name)
     vector_db.create_collection(collection_name)
     collection = vector_db.get_collection(collection_name)
     ragbench_docs = _ragbench_documents(rows)
     collection.add_documents(ragbench_docs)
-    ParentStoreManager().save_many([
+    PgParentStoreManager().save_many([
         (str(doc.metadata["parent_id"]), doc)
         for doc in ragbench_docs
     ])
@@ -370,7 +370,7 @@ class _AnswerGenerator:
 
 
 class _AgentGraphAnswerGenerator:
-    def __init__(self, collection, vector_db: VectorDbManager, collection_name: str, model: str) -> None:
+    def __init__(self, collection, vector_db: PgVectorManager, collection_name: str, model: str) -> None:
         llm = _create_eval_llm(model)
         tools = ToolFactory(
             collection,

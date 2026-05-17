@@ -9,7 +9,7 @@ if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
 import config
-from storage.vector_store import VectorDbManager
+from storage.pg_vector_store import PgVectorManager
 from evaluation.data import load_eval_questions
 from evaluation.io import config_snapshot, make_run_id, write_jsonl, write_metrics_csv
 from evaluation.metrics.retrieval_metrics import (
@@ -36,7 +36,7 @@ def run_retrieval_eval(
     run_dir.mkdir(parents=True, exist_ok=True)
     reports_dir.mkdir(parents=True, exist_ok=True)
 
-    vector_db = VectorDbManager()
+    vector_db = PgVectorManager()
     vector_db.create_collection(collection_name)
     collection = vector_db.get_collection(collection_name)
 
@@ -85,7 +85,7 @@ def retrieve_chunks(
     query: str,
     top_k: int,
     score_threshold: float | None = None,
-    vector_db: VectorDbManager | None = None,
+    vector_db: PgVectorManager | None = None,
     collection_name: str | None = None,
 ) -> List[Dict[str, Any]]:
     candidate_k = top_k
@@ -136,7 +136,7 @@ def _retrieve_candidate_docs(
     query: str,
     candidate_k: int,
     score_threshold: float | None,
-    vector_db: VectorDbManager | None,
+    vector_db: PgVectorManager | None,
     collection_name: str | None,
 ) -> List[tuple[Any, float | None]]:
     mode = config.RETRIEVAL_FUSION_MODE

@@ -5,7 +5,7 @@ from typing import List, Optional
 from langchain_core.documents import Document
 
 import config
-from storage.parent_store import ParentStoreManager
+from storage.pg_parent_store import PgParentStoreManager
 from retrieval.reranker import RerankerUnavailable, get_reranker
 
 logger = logging.getLogger(__name__)
@@ -16,7 +16,7 @@ class RetrievalPipeline:
         self.collection = collection
         self.vector_db = vector_db
         self.collection_name = collection_name
-        self.parent_store_manager = parent_store_manager or ParentStoreManager()
+        self.parent_store_manager = parent_store_manager or PgParentStoreManager()
         self.allowed_source_files: set[str] = set()
 
     def set_allowed_source_files(self, source_files: Optional[List[str]] = None) -> None:

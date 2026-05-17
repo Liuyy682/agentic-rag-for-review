@@ -1,8 +1,8 @@
 import uuid
 from langchain_openai import ChatOpenAI
 import config
-from storage.vector_store import VectorDbManager
-from storage.parent_store import ParentStoreManager
+from storage.pg_vector_store import PgVectorManager
+from storage.pg_parent_store import PgParentStoreManager
 from ingestion.chunking import DocumentChunker
 from rag_agent.tools import ToolFactory
 from rag_agent.graph import create_agent_graph
@@ -12,8 +12,8 @@ class RAGSystem:
 
     def __init__(self, collection_name=config.CHILD_COLLECTION):
         self.collection_name = collection_name
-        self.vector_db = VectorDbManager()
-        self.parent_store = ParentStoreManager()
+        self.vector_db = PgVectorManager()
+        self.parent_store = PgParentStoreManager()
         self.chunker = DocumentChunker()
         self.observability = Observability()
         self.agent_graph = None
