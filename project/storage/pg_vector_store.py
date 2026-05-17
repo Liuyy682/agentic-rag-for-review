@@ -1,19 +1,13 @@
-import logging
 from typing import List
 
 from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
-from pgvector.sqlalchemy import Vector
-from sqlalchemy import func
-from sqlalchemy.dialects.postgresql import ARRAY
-from sqlalchemy.orm import Session
+from sqlalchemy import func, text
 
 import config
 from database.engine import SessionLocal
 from database.models.chunk import ParentChunk, ChildChunk
 from retrieval.fusion import reciprocal_rank_fusion
-
-logger = logging.getLogger(__name__)
 
 
 def _make_ts_query(text: str) -> str:
@@ -138,26 +132,22 @@ class PgVectorManager:
 
     def dense_search(self, collection_name: str, query: str, k: int) -> List[Document]:
         embedding = self._dense_embeddings.embed_query(query)
+        vec_str = "'[" + ",".join(str(v) for v in embedding) + "]'"
         session = SessionLocal()
         try:
-            rows = (
-                session.query(
-                    ChildChunk.child_id,
-                    ChildChunk.parent_id,
-                    ChildChunk.doc_id,
-                    ChildChunk.content,
-                    ChildChunk.source,
-                    ChildChunk.source_file,
-                    ChildChunk.page_numbers,
-                    ChildChunk.slide_title,
-                    ChildChunk.metadata_,
-                    (1 - func.cosine_distance(ChildChunk.embedding, embedding)).label("score"),
-                )
-                .order_by(func.cosine_distance(ChildChunk.embedding, embedding))
-                .limit(k)
-                .all()
+            result = session.execute(
+                text(
+                    "SELECT child_id, parent_id, doc_id, content, source, source_file, "
+                    "page_numbers, slide_title, metadata, "
+                    "1 - (embedding <=> " + vec_str + "::vector) AS score "
+                    "FROM child_chunks "
+                    "ORDER BY embedding <=> " + vec_str + "::vector "
+                    "LIMIT :k"
+                ),
+                {"k": k},
             )
-            return [_row_to_doc(row) for row in rows]
+            rows = result.fetchall()
+            return [_text_row_to_doc(row) for row in rows]
         finally:
             session.close()
 
@@ -165,25 +155,20 @@ class PgVectorManager:
         ts_query = _make_ts_query(query)
         session = SessionLocal()
         try:
-            rows = (
-                session.query(
-                    ChildChunk.child_id,
-                    ChildChunk.parent_id,
-                    ChildChunk.doc_id,
-                    ChildChunk.content,
-                    ChildChunk.source,
-                    ChildChunk.source_file,
-                    ChildChunk.page_numbers,
-                    ChildChunk.slide_title,
-                    ChildChunk.metadata_,
-                    func.ts_rank(ChildChunk.content_tsv, func.to_tsquery("simple", ts_query)).label("score"),
-                )
-                .filter(ChildChunk.content_tsv.bool_op("@@")(func.to_tsquery("simple", ts_query)))
-                .order_by(func.ts_rank(ChildChunk.content_tsv, func.to_tsquery("simple", ts_query)).desc())
-                .limit(k)
-                .all()
+            result = session.execute(
+                text(
+                    "SELECT child_id, parent_id, doc_id, content, source, source_file, "
+                    "page_numbers, slide_title, metadata, "
+                    "ts_rank(content_tsv, to_tsquery('simple', :tsq)) AS score "
+                    "FROM child_chunks "
+                    "WHERE content_tsv @@ to_tsquery('simple', :tsq) "
+                    "ORDER BY score DESC "
+                    "LIMIT :k"
+                ),
+                {"tsq": ts_query, "k": k},
             )
-            return [_row_to_doc(row) for row in rows]
+            rows = result.fetchall()
+            return [_text_row_to_doc(row) for row in rows]
         finally:
             session.close()
 
@@ -220,3 +205,22 @@ def _row_to_doc(row) -> Document:
     if score is not None:
         meta["score"] = float(score)
     return Document(page_content=content, metadata=meta)
+
+
+def _text_row_to_doc(row) -> Document:
+    """Convert a text() query row to a Langchain Document."""
+    data = row._mapping
+    meta = dict(data.get("metadata") or {})
+    meta["chunk_id"] = data["child_id"]
+    meta["parent_id"] = data["parent_id"]
+    meta["doc_id"] = data["doc_id"]
+    meta["source"] = data["source"]
+    meta["source_file"] = data["source_file"]
+    if data.get("page_numbers"):
+        meta["page_numbers"] = data["page_numbers"]
+    if data.get("slide_title"):
+        meta["slide_title"] = data["slide_title"]
+    score = data.get("score")
+    if score is not None:
+        meta["score"] = float(score)
+    return Document(page_content=data["content"], metadata=meta)
