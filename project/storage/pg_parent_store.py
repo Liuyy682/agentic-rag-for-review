@@ -63,6 +63,69 @@ class PgParentStoreManager:
             key=lambda d: key_fn(d["parent_id"]),
         )
 
+    def load_child_neighbors(self, anchors: List[Dict], window: int = 1) -> List[Dict]:
+        """Load child chunks around anchor chunk_index values within the same parent."""
+        if not anchors:
+            return []
+
+        normalized = []
+        for anchor in anchors:
+            parent_id = str(anchor.get("parent_id") or "")
+            try:
+                chunk_index = int(anchor.get("chunk_index"))
+            except (TypeError, ValueError):
+                continue
+            if parent_id:
+                normalized.append((parent_id, chunk_index))
+        if not normalized:
+            return []
+
+        session = SessionLocal()
+        seen_child_ids = set()
+        rows_by_key = []
+        try:
+            for request_order, (parent_id, chunk_index) in enumerate(normalized):
+                start = chunk_index - max(0, int(window))
+                end = chunk_index + max(0, int(window))
+                rows = (
+                    session.query(ChildChunk)
+                    .filter(ChildChunk.parent_id == parent_id)
+                    .filter(ChildChunk.chunk_index >= start)
+                    .filter(ChildChunk.chunk_index <= end)
+                    .order_by(ChildChunk.chunk_index.asc(), ChildChunk.id.asc())
+                    .all()
+                )
+                for row in rows:
+                    if row.child_id in seen_child_ids:
+                        continue
+                    seen_child_ids.add(row.child_id)
+                    metadata = dict(row.metadata_ or {})
+                    metadata.update(
+                        {
+                            "chunk_id": row.child_id,
+                            "parent_id": row.parent_id,
+                            "doc_id": row.doc_id,
+                            "chunk_index": row.chunk_index,
+                            "source": row.source,
+                            "source_file": row.source_file,
+                        }
+                    )
+                    rows_by_key.append(
+                        (
+                            request_order,
+                            row.chunk_index if row.chunk_index is not None else 0,
+                            {
+                                "content": row.content,
+                                "parent_id": row.parent_id,
+                                "metadata": metadata,
+                            },
+                        )
+                    )
+        finally:
+            session.close()
+
+        return [item for _, _, item in sorted(rows_by_key, key=lambda row: (row[0], row[1]))]
+
     def delete_many(self, parent_ids: List[str]) -> None:
         if not parent_ids:
             return

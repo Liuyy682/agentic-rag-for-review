@@ -46,6 +46,9 @@ SPARSE_TOP_K = 50
 RRF_TOP_K = 10
 RRF_K = 60
 RETRIEVAL_DEBUG = False
+RETRIEVAL_CONTEXT_POLICY = os.environ.get("RETRIEVAL_CONTEXT_POLICY", "adaptive").strip().lower()
+RETRIEVAL_NEIGHBOR_WINDOW = int(os.environ.get("RETRIEVAL_NEIGHBOR_WINDOW", "1"))
+RETRIEVAL_PARENT_EXPAND_MIN_HITS = int(os.environ.get("RETRIEVAL_PARENT_EXPAND_MIN_HITS", "2"))
 
 # --- Cross-Encoder Reranker Configuration ---
 RERANKER_ENABLED = True

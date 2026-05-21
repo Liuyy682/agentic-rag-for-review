@@ -54,6 +54,7 @@ class TestRagResearchTool(unittest.TestCase):
 
     def test_rag_research_returns_structured_result(self):
         with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \
+            patch("config.RETRIEVAL_CONTEXT_POLICY", "parent"), \
             patch("config.RERANKER_ENABLED", False), \
             patch.object(
                 self.tool_factory.parent_store_manager,
@@ -82,6 +83,7 @@ class TestRagResearchTool(unittest.TestCase):
         )
         self.tool_factory.set_allowed_source_files(["source.pdf"])
         with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \
+            patch("config.RETRIEVAL_CONTEXT_POLICY", "parent"), \
             patch("config.RERANKER_ENABLED", False), \
             patch.object(
                 self.tool_factory.parent_store_manager,
