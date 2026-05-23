@@ -38,13 +38,7 @@ class FakeVectorDb:
 
 
 class FakeCollection:
-    def similarity_search(self, query, k, score_threshold=None):
-        return [
-            Document(
-                page_content="hybrid content",
-                metadata={"chunk_id": "hybrid_child", "parent_id": "parent_1", "source": "source.pdf"},
-            )
-        ]
+    pass
 
 
 class TestRrfRetrievalTool(unittest.TestCase):
@@ -89,12 +83,6 @@ class TestRrfRetrievalTool(unittest.TestCase):
             output = self.tool_factory._search_child_chunks("query", 5)
         self.assertIn("RRF Score:", output)
         self.assertIn("RRF Rank Details:", output)
-
-    def test_qdrant_hybrid_mode_uses_existing_collection(self):
-        with patch("config.RETRIEVAL_FUSION_MODE", "qdrant_hybrid"):
-            output = self.tool_factory._search_child_chunks("query", 5)
-
-        self.assertIn("Content: hybrid content", output)
 
 
 if __name__ == "__main__":

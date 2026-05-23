@@ -71,7 +71,6 @@ def run_ragbench_local_rag_eval(
     rows = _read_jsonl(source_contexts_path)
     questions = [_context_row_to_eval_question(row, index + 1) for index, row in enumerate(rows)]
 
-    config.QDRANT_DB_PATH = str(run_dir / "qdrant_db")
     config.PARENT_STORE_PATH = str(run_dir / "parent_store")
     parent_store_dir = Path(config.PARENT_STORE_PATH)
     if parent_store_dir.exists():
@@ -570,7 +569,7 @@ def main() -> None:
     parser.add_argument("--ragas-max-tokens", default=None, help="Set to none/unlimited/0 to omit a RAGAS judge max_tokens limit.")
     parser.add_argument(
         "--retrieval-fusion-mode",
-        choices=["rrf", "dense", "sparse", "qdrant_hybrid"],
+        choices=["rrf", "dense", "sparse"],
         default=None,
         help="Override config.RETRIEVAL_FUSION_MODE for this run.",
     )

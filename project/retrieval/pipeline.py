@@ -95,8 +95,6 @@ class RetrievalPipeline:
             if not self.vector_db or not self.collection_name:
                 raise ValueError("Sparse retrieval requires vector_db and collection_name")
             results = self.vector_db.sparse_search(self.collection_name, query, k=retrieval_limit)
-        elif mode == "qdrant_hybrid":
-            results = self.collection.similarity_search(query, k=retrieval_limit, score_threshold=0.7)
         else:
             raise ValueError(f"Unsupported retrieval fusion mode: {mode}")
 

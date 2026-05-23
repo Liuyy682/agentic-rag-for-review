@@ -404,11 +404,6 @@ class DocumentManager:
             return False, "markdown_missing"
         return True, "unchanged_file"
 
-    def _index_markdown(self, md_path: Path, original_file: str | None = None) -> bool:
-        """Compatibility wrapper for older internal callers."""
-        result = self._process_document(Path(md_path), [])
-        return result.status == "added"
-
     def _clean_for_hash(self, markdown_text: str, source_file: str):
         """Mirror the chunker cleaning path so page hashes match indexed content."""
         if config.MARKDOWN_CLEANING_ENABLED:

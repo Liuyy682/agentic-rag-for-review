@@ -101,8 +101,6 @@ Output:
 - Do not expose internal retry reasoning.
 """
 
-def get_orchestrator_prompt() -> str:
-    return get_task_executor_prompt()
 
 def get_chitchat_prompt() -> str:
     return """You are a concise, friendly assistant.

@@ -15,8 +15,8 @@ from ingestion.index_manifest import (
     build_page_hashes,
     current_index_config,
 )
-from storage.parent_store import ParentStoreManager
 from ingestion.chunking import DocumentChunker
+from storage.pg_parent_store import PgParentStoreManager
 
 
 def paged_markdown(page_3_text="page three"):
@@ -83,7 +83,7 @@ class FakeRagSystem:
     def __init__(self, parent_store_path):
         self.collection_name = "test_collection"
         self.vector_db = FakeVectorDb()
-        self.parent_store = ParentStoreManager(parent_store_path)
+        self.parent_store = PgParentStoreManager()
         self.chunker = DocumentChunker()
 
 
@@ -116,16 +116,6 @@ class TestPageIncrementalIndex(unittest.TestCase):
             loaded.data["index_config"]["chunker_config_hash"] = "different"
             self.assertFalse(loaded.is_config_compatible())
 
-    def test_parent_store_delete_many_removes_only_selected_files(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            store = ParentStoreManager(temp_dir)
-            store.save("p1", "one", {"source_file": "a.md"})
-            store.save("p2", "two", {"source_file": "a.md"})
-
-            store.delete_many(["p1"])
-
-            self.assertFalse((Path(temp_dir) / "p1.json").exists())
-            self.assertTrue((Path(temp_dir) / "p2.json").exists())
 
     def test_same_name_markdown_update_rebuilds_whole_document(self):
         with tempfile.TemporaryDirectory() as temp_dir:

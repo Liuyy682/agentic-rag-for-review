@@ -49,8 +49,6 @@ def route_after_task_executor_call(state: AgentState) -> Literal["tools", "fallb
     
     return "tools"
 
-def route_after_orchestrator_call(state: AgentState) -> Literal["tools", "fallback_response", "collect_answer"]:
-    return route_after_task_executor_call(state)
 
 def route_after_answer_evaluation(state: AgentState) -> Literal["task_executor", "knowledge_fallback", "__end__"]:
     if state.get("answer_mode") == "knowledge_fallback":

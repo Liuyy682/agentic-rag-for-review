@@ -64,7 +64,7 @@ class _PgCollection:
         return ids
 
     def similarity_search(self, query: str, k: int = 4, score_threshold: float | None = None) -> List[Document]:
-        """Dense-only similarity search. Used by qdrant_hybrid mode."""
+        """Dense-only similarity search."""
         return self._manager.dense_search(self._collection_name, query, k)
 
 
@@ -191,23 +191,6 @@ class PgVectorManager:
             k=rrf_k,
             top_k=fused_k,
         )
-
-
-def _row_to_doc(row) -> Document:
-    child_id, parent_id, doc_id, content, source, source_file, page_numbers, slide_title, metadata_, score = row
-    meta = dict(metadata_ or {})
-    meta.setdefault("chunk_id", child_id)
-    meta.setdefault("parent_id", parent_id)
-    meta.setdefault("doc_id", doc_id)
-    meta.setdefault("source", source)
-    meta.setdefault("source_file", source_file)
-    if page_numbers is not None:
-        meta.setdefault("page_numbers", page_numbers)
-    if slide_title:
-        meta.setdefault("slide_title", slide_title)
-    if score is not None:
-        meta["score"] = float(score)
-    return Document(page_content=content, metadata=meta)
 
 
 def _text_row_to_doc(row) -> Document:

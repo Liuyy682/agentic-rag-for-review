@@ -11,7 +11,7 @@ import config
 from ingestion.document_manager import DocumentManager
 from ingestion.index_manifest import IndexManifest
 from ingestion.chunking import DocumentChunker
-from storage.parent_store import ParentStoreManager
+from storage.pg_parent_store import PgParentStoreManager
 
 
 class FakeCollection:
@@ -50,7 +50,7 @@ class FakeRagSystem:
     def __init__(self, parent_store_path):
         self.collection_name = "test_collection"
         self.vector_db = FakeVectorDb()
-        self.parent_store = ParentStoreManager(parent_store_path)
+        self.parent_store = PgParentStoreManager()
         self.chunker = DocumentChunker()
 
 

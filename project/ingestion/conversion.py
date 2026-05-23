@@ -92,14 +92,6 @@ def documents_to_markdowns(path_pattern_or_paths, overwrite: bool = False):
     return markdown_paths
 
 
-def pdf_to_markdown(pdf_path, output_dir):
-    """Compatibility wrapper; new ingestion uses convert_document_to_markdown."""
-    return convert_document_to_markdown(pdf_path, output_dir, overwrite=True)
-
-
-def pdfs_to_markdowns(path_pattern, overwrite: bool = False):
-    """Compatibility wrapper; new ingestion uses documents_to_markdowns."""
-    return documents_to_markdowns(path_pattern, overwrite=overwrite)
 
 def estimate_context_tokens(messages: list) -> int:
     try:

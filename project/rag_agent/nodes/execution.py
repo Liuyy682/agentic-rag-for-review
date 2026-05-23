@@ -38,10 +38,6 @@ def task_executor(state: AgentState, llm_with_tools):
     }
 
 
-def orchestrator(state: AgentState, llm_with_tools):
-    return task_executor(state, llm_with_tools)
-
-
 def fallback_response(state: AgentState, llm):
     seen = set()
     unique_contents = []

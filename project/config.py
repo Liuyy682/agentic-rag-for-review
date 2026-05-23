@@ -23,7 +23,7 @@ MARKDOWN_CLEANING_DIFF_DIR = os.path.join(_RUNTIME_DIR, "markdown_cleaning_diffs
 DOCUMENT_IMAGE_DIR = os.path.join(_RUNTIME_DIR, "document_images")
 INGESTION_LOG_DIR = os.path.join(_RUNTIME_DIR, "ingestion_logs")
 PARENT_STORE_PATH = os.path.join(_RUNTIME_DIR, "parent_store")
-QDRANT_DB_PATH = os.path.join(_RUNTIME_DIR, "qdrant_db")
+
 EVALUATION_REPORTS_DIR = os.path.join(_RUNTIME_DIR, "evaluation_reports")
 COURSE_STRUCTURE_PATH = os.path.join(_RUNTIME_DIR, "course_structure.json")
 SESSION_MEMORY_PATH = os.path.join(_RUNTIME_DIR, "session_memory.sqlite3")
@@ -40,7 +40,7 @@ SPARSE_VECTOR_NAME = "sparse"
 
 # --- Retrieval Fusion Configuration ---
 RETRIEVAL_FUSION_MODE = "rrf"
-# Options: "qdrant_hybrid", "rrf", "dense", "sparse"
+# Options: "rrf", "dense", "sparse"
 DENSE_TOP_K = 50
 SPARSE_TOP_K = 50
 RRF_TOP_K = 10

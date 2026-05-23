@@ -65,8 +65,4 @@ class ToolFactory:
         rag_tool = tool("rag_research")(self._rag_research)
         return [rag_tool]
 
-    def create_legacy_tools(self) -> List:
-        """Create low-level retrieval tools for debugging or legacy experiments."""
-        search_tool = tool("search_child_chunks")(self._search_child_chunks)
-        retrieve_tool = tool("retrieve_parent_chunks")(self._retrieve_parent_chunks)
-        return [search_tool, retrieve_tool]
+
