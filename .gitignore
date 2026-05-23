@@ -13,5 +13,7 @@ __pycache__/
 .cache/
 .agents/
 .venv/
+.github/
+.codex
 docs/
 notebooks/
