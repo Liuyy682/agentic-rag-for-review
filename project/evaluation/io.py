@@ -71,11 +71,14 @@ def config_snapshot(
         "parent_min_size": config.MIN_PARENT_SIZE,
         "parent_max_size": config.MAX_PARENT_SIZE,
         "dense_model": config.DENSE_MODEL,
+        "dense_embedding_dimension": config.DENSE_EMBEDDING_DIMENSION,
+        "dense_query_instruction": config.DENSE_QUERY_INSTRUCTION,
+        "dense_normalize_embeddings": config.DENSE_NORMALIZE_EMBEDDINGS,
         "sparse_model": config.SPARSE_MODEL,
         "retrieval_mode": "hybrid",
         "top_k": top_k,
         "score_threshold": score_threshold,
-        "reranker": None,
+        "reranker": config.RERANKER_MODEL if config.RERANKER_ENABLED else None,
         "llm_model": config.LLM_MODEL,
     }
 

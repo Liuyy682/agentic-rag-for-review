@@ -9,6 +9,14 @@ _RUNTIME_DIR = os.path.join(_BASE_DIR, "runtime")
 load_dotenv(os.path.join(_BASE_DIR, ".env"))
 load_dotenv(os.path.join(_PROJECT_DIR, ".env"), override=True)
 
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 HF_CACHE_DIR = os.path.join(_BASE_DIR, ".cache", "huggingface")
 _DEFAULT_HF_HOME = os.path.expanduser("~/.cache/huggingface")
 if not os.path.exists(_DEFAULT_HF_HOME) or not os.access(_DEFAULT_HF_HOME, os.W_OK):
@@ -52,17 +60,23 @@ RETRIEVAL_PARENT_EXPAND_MIN_HITS = int(os.environ.get("RETRIEVAL_PARENT_EXPAND_M
 
 # --- Cross-Encoder Reranker Configuration ---
 RERANKER_ENABLED = True
-RERANKER_MODEL = "cross-encoder/ms-marco-TinyBERT-L-2-v2"
+RERANKER_MODEL = "BAAI/bge-reranker-large"
 RERANKER_DEVICE = "auto"
 RERANKER_BATCH_SIZE = 8
 RERANKER_TOP_N = 40
 RERANKER_FINAL_TOP_K = 5
 RERANKER_MAX_LENGTH = 512
 RERANKER_SCORE_THRESHOLD = None
-RERANKER_LOCAL_FILES_ONLY = os.environ.get("RERANKER_LOCAL_FILES_ONLY", "true").lower() in {"1", "true", "yes", "on"}
+RERANKER_LOCAL_FILES_ONLY = _env_bool("RERANKER_LOCAL_FILES_ONLY", _env_bool("HF_HUB_OFFLINE", False))
 
 # --- Model Configuration ---
-DENSE_MODEL = "sentence-transformers/all-mpnet-base-v2"
+DENSE_MODEL = "BAAI/bge-large-zh-v1.5"
+DENSE_EMBEDDING_DIMENSION = 1024
+DENSE_EMBEDDING_DEVICE = os.environ.get("DENSE_EMBEDDING_DEVICE", "auto")
+DENSE_EMBEDDING_BATCH_SIZE = int(os.environ.get("DENSE_EMBEDDING_BATCH_SIZE", "32"))
+DENSE_QUERY_INSTRUCTION = os.environ.get("DENSE_QUERY_INSTRUCTION", "为这个句子生成表示以用于检索相关文章：")
+DENSE_NORMALIZE_EMBEDDINGS = _env_bool("DENSE_NORMALIZE_EMBEDDINGS", True)
+DENSE_LOCAL_FILES_ONLY = _env_bool("DENSE_LOCAL_FILES_ONLY", _env_bool("HF_HUB_OFFLINE", False))
 SPARSE_MODEL = "Qdrant/bm25"
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
@@ -93,12 +107,6 @@ MARKDOWN_CLEANING_ENABLED = True
 HEADER_FOOTER_SCAN_LINES = 3
 MIN_REPEAT_PAGES = 3
 MIN_REPEAT_RATIO = 0.3
-
-def _env_bool(name: str, default: bool = False) -> bool:
-    value = os.environ.get(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 # --- Document Conversion ---
 DOCUMENT_CONVERTER = os.environ.get("DOCUMENT_CONVERTER", "markitdown")

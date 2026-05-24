@@ -1,12 +1,11 @@
 from typing import List
 
 from langchain_core.documents import Document
-from langchain_huggingface import HuggingFaceEmbeddings
 from sqlalchemy import func, text
 
-import config
 from database.engine import SessionLocal
 from database.models.chunk import ParentChunk, ChildChunk
+from retrieval.embeddings import DenseEmbeddingModel
 from retrieval.fusion import reciprocal_rank_fusion
 
 
@@ -72,15 +71,7 @@ class PgVectorManager:
     """Pgvector replacement for VectorDbManager. Same public API."""
 
     def __init__(self):
-        import os
-
-        self._dense_embeddings = HuggingFaceEmbeddings(
-            model_name=config.DENSE_MODEL,
-            cache_folder=getattr(config, "HF_CACHE_DIR", None),
-            model_kwargs={
-                "local_files_only": os.environ.get("HF_HUB_OFFLINE", "0") == "1",
-            },
-        )
+        self._dense_embeddings = DenseEmbeddingModel()
 
     # ── lifecycle ──────────────────────────────────────────────────
 

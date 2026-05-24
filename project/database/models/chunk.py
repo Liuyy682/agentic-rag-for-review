@@ -3,6 +3,7 @@ from sqlalchemy import Column, DateTime, Integer, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.sql import func
 
+import config
 from database.base import Base
 
 
@@ -30,7 +31,7 @@ class ChildChunk(Base):
     page_numbers = Column(ARRAY(Integer))
     slide_title = Column(String(500))
     content = Column(Text, nullable=False)
-    embedding = Column(Vector(768))
+    embedding = Column(Vector(config.DENSE_EMBEDDING_DIMENSION))
     content_tsv = Column(TSVECTOR)
     metadata_ = Column("metadata", JSONB)
     created_at = Column(DateTime, server_default=func.now())

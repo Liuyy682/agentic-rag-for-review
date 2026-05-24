@@ -9,15 +9,12 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.preprocessing import normalize
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
-import config
 from evaluation.io import write_jsonl, write_metrics_csv
 from evaluation.metrics.ragas_metrics import build_ragas_error_cases, run_ragas_metrics
 from evaluation.runners import chunking_ablation as retrieval_ablation
@@ -29,6 +26,7 @@ from evaluation.validation import (
     validation_markdown_section,
     write_validation_outputs,
 )
+from retrieval.embeddings import DenseEmbeddingModel
 
 
 DEFAULT_VARIANTS = "single_1200_240,pc_child,pc_neighbor,pc_parent,pc_adaptive"
@@ -104,12 +102,8 @@ def main() -> None:
     write_validation_outputs(output_dir, validation_warnings, validity_summary)
 
     questions = [row["question"] for row in rows]
-    model = SentenceTransformer(
-        config.DENSE_MODEL,
-        cache_folder=getattr(config, "HF_CACHE_DIR", None),
-        local_files_only=True,
-    )
-    query_embeddings = normalize(model.encode(questions, batch_size=32, show_progress_bar=True))
+    model = DenseEmbeddingModel(local_files_only=True)
+    query_embeddings = model.encode_queries(questions, batch_size=32, show_progress_bar=True)
 
     summaries = []
     for variant in variants:
@@ -200,7 +194,7 @@ def run_variant(
     source_docs: list[retrieval_ablation.SourceDoc],
     variant: retrieval_ablation.Variant,
     query_embeddings,
-    model: SentenceTransformer,
+    model: DenseEmbeddingModel,
     top_k: int,
     dense_top_k: int,
     sparse_top_k: int,
@@ -210,7 +204,7 @@ def run_variant(
 ) -> tuple[list[dict[str, Any]], dict[str, float]]:
     chunks, parents = retrieval_ablation.build_variant_chunks(source_docs, variant)
     chunk_texts = [chunk.text for chunk in chunks]
-    chunk_embeddings = normalize(model.encode(chunk_texts, batch_size=64, show_progress_bar=True))
+    chunk_embeddings = model.encode_documents(chunk_texts, batch_size=64, show_progress_bar=True)
 
     vectorizer = TfidfVectorizer(ngram_range=(1, 2), lowercase=True)
     sparse_matrix = vectorizer.fit_transform(chunk_texts)

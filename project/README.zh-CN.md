@@ -137,7 +137,9 @@ SPARSE_VECTOR_NAME = "sparse"               # 命名稀疏向量字段（BM25）
 ### 模型配置
 
 ```python
-DENSE_MODEL = "sentence-transformers/all-mpnet-base-v2"
+DENSE_MODEL = "BAAI/bge-large-zh-v1.5"
+DENSE_EMBEDDING_DIMENSION = 1024
+RERANKER_MODEL = "BAAI/bge-reranker-large"
 SPARSE_MODEL = "Qdrant/bm25"
 LLM_PROVIDER = "ollama"  # "ollama" 或 "openai"
 OLLAMA_MODEL = "qwen3:4b-instruct-2507-q4_K_M"
@@ -366,35 +368,31 @@ ACTIVE_LLM_CONFIG = "google"  # 切到 Gemini Pro
 **步骤 1：** 更新 `project/config.py`
 
 ```python
-# 示例：更快、更小的模型
-DENSE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+# 当前中文检索模型
+DENSE_MODEL = "BAAI/bge-large-zh-v1.5"
+DENSE_EMBEDDING_DIMENSION = 1024
+DENSE_QUERY_INSTRUCTION = "为这个句子生成表示以用于检索相关文章："
+DENSE_NORMALIZE_EMBEDDINGS = True
 
-# 示例：质量更高、速度更慢的模型
-# DENSE_MODEL = "sentence-transformers/all-mpnet-base-v2"
+# 当前中文重排模型
+RERANKER_MODEL = "BAAI/bge-reranker-large"
 
-# 示例：Gemma embedding（Google 开源模型）
-# DENSE_MODEL = "google/embeddinggemma-300m"
-
-# 示例：Qwen embedding（阿里多语言模型）
-# DENSE_MODEL = "Qwen/Qwen3-Embedding-8B"
-
-SPARSE_MODEL = "Qdrant/bm25"  # 通常无需修改
+SPARSE_MODEL = "Qdrant/bm25"
 ```
 
-**步骤 2：** 重新索引文档
+如果 Hugging Face 直连不稳定，启动应用前设置国内镜像：
 
-⚠️ **重要：** 修改 embedding 后，必须通过 Gradio UI 对所有文档重新索引。
-
-**实现细节**（位于 `project/storage/vector_store.py`）：
-
-```python
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_qdrant import FastEmbedSparse
-import config
-
-self.__dense_embeddings = HuggingFaceEmbeddings(model_name=config.DENSE_MODEL)
-self.__sparse_embeddings = FastEmbedSparse(model_name=config.SPARSE_MODEL)
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
 ```
+
+**步骤 2：** 执行迁移并重新索引文档
+
+```bash
+alembic upgrade head
+```
+
+⚠️ **重要：** `BAAI/bge-large-zh-v1.5` 使用 1024 维向量。迁移 `002` 会破坏式重建 `parent_chunks` 和 `child_chunks`；迁移后请在 Gradio UI 中清空/重新索引文档。
 
 **常见 Embedding 模型：**
 
@@ -402,7 +400,8 @@ self.__sparse_embeddings = FastEmbedSparse(model_name=config.SPARSE_MODEL)
 |-------|--------------|------------------|-------|---------|----------|
 | all-MiniLM-L6-v2 | 256 tokens | 384 | 快 | 良好 | 通用场景，快速语义相似度 |
 | all-mpnet-base-v2 | 512 tokens | 768 | 中 | 优秀 | 高精度语义检索 |
-| bge-large-en-v1.5 | 512 tokens | 1024 | 慢 | 最佳 | 生产级 GPU 检索 |
+| BAAI/bge-large-zh-v1.5 | 512 tokens | 1024 | 慢 | 优秀 | GPU 上的中文检索 |
+| BAAI/bge-base-zh-v1.5 | 512 tokens | 768 | 中 | 很好 | 保持 768 维向量库的中文检索 |
 | google/embeddinggemma-300m | 2048 tokens | 768 | 快 | 很好 | 轻量高效的多语言检索 |
 | Qwen/Qwen3-Embedding-8B | 32768 tokens | 4096 | 慢 | 优秀 / SOTA | 大规模多语言 embedding，长上下文 RAG |
 
@@ -459,7 +458,7 @@ self.__child_splitter = SentenceTransformersTokenTextSplitter(
 **分块建议：**
 
 > ⚠️ **说明：** 以下为经验值。最佳尺寸依赖于：
-> - **子块（Child chunk）** → embedding 模型上下文窗口（例如 all-MiniLM-L6-v2 为 256 tokens，bge-large-en-v1.5 为 512）：子块大小不应超过该窗口
+> - **子块（Child chunk）** → embedding 模型上下文窗口（例如 BAAI/bge-large-zh-v1.5 为 512 tokens）：子块大小不应超过该窗口
 > - **父块（Parent chunk）** → 生成模型上下文窗口（例如 8K、32K、128K tokens）：父块必须能与查询一起放入传给 LLM 的上下文中
 >
 > 请务必在你的语料上做实测验证。
@@ -641,8 +640,8 @@ docker rm -f rag-assistant     # 删除
 | 问题 | 原因 | 解决方案 |
 |-------|-------|----------|
 | "Model not found" 错误 | 提供商对应的模型名错误 | 校验 `LLM_MODEL` 是否符合提供商 API（例如 `gpt-4o-mini` 而不是 `gpt4-mini`） |
-| 检索质量差 | embedding 模型或分块配置不佳 | 使用更好的 embedding（如 all-mpnet-base-v2）并重新索引，或调整分块大小 |
-| 响应慢 | embedding 模型过大或 `top_k` 过高 | 使用更小 embedding（如 all-MiniLM-L6-v2）或下调检索工具中的 `top_k` |
+| 检索质量差 | embedding 模型或分块配置不佳 | 修改 embedding 后重新索引文档，或调整分块大小 |
+| 响应慢 | embedding 模型过大或 `top_k` 过高 | 使用更小 embedding（如 BAAI/bge-base-zh-v1.5）或下调检索工具中的 `top_k` |
 | API 速率限制超限 | 向外部提供商请求过多 | 增加指数退避重试逻辑，或改用本地 Ollama 模型 |
 | 内存不足（OOM） | 文档规模过大或 embedding 过重 | 使用更小 embedding、减小 batch size，或启用 GPU 加速 |
 | 检索结果为空 | 集合未索引或集合名不匹配 | 检查文档是否已上传，并确认配置中的 `CHILD_COLLECTION` 名称一致 |

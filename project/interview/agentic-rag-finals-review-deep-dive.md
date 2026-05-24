@@ -229,7 +229,7 @@ sequenceDiagram
 **关键代码/证据：**
 
 - `alembic/versions/001_initial_schema.py:86` 创建 `child_chunks`。
-- `alembic/versions/001_initial_schema.py:98` `embedding Vector(768)`。
+- `alembic/versions/002_bge_zh_embeddings.py` 将 `embedding` 重建为 `Vector(1024)`，匹配 `BAAI/bge-large-zh-v1.5`。
 - `alembic/versions/001_initial_schema.py:99` `content_tsv TSVECTOR`。
 - `alembic/versions/001_initial_schema.py:104` pgvector HNSW 索引。
 - `alembic/versions/001_initial_schema.py:105` `content_tsv` GIN 索引。

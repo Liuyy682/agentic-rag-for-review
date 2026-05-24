@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from project.config import DATABASE_URL
+from project.config import DATABASE_URL, DENSE_EMBEDDING_DIMENSION
 from project.database.engine import engine, SessionLocal
 from project.database.models import (
     User,
@@ -103,7 +103,7 @@ def test_vector_insert_and_search():
 
     session = SessionLocal()
     try:
-        embedding = np.random.randn(768).astype(np.float32).tolist()
+        embedding = np.random.randn(DENSE_EMBEDDING_DIMENSION).astype(np.float32).tolist()
 
         chunk = ChildChunk(
             child_id="test_1_8_child",
@@ -300,6 +300,7 @@ def test_child_chunk_has_vector_column():
     """child_chunks must have an embedding column of type vector."""
     col = ChildChunk.__table__.columns["embedding"]
     assert col is not None
+    assert col.type.dim == DENSE_EMBEDDING_DIMENSION
 
 
 def test_child_chunk_has_tsv_column():

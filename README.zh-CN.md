@@ -74,7 +74,7 @@ DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_MODEL=deepseek-chat
 ```
 
-Langfuse 和多模态摄入的可选配置见 `project/.env.example`。
+Hugging Face 镜像、Langfuse 和多模态摄入的可选配置见 `project/.env.example`。
 
 ## 数据库
 
@@ -89,6 +89,8 @@ docker compose up -d postgres
 ```bash
 alembic upgrade head
 ```
+
+当前默认检索栈使用 `BAAI/bge-large-zh-v1.5` embedding 和 `BAAI/bge-reranker-large`。迁移 `002` 会为了 1024 维 embedding 破坏式重建 `parent_chunks` 和 `child_chunks`，升级后需要重新索引文档。如果 Hugging Face 直连不稳定，启动应用前设置 `HF_ENDPOINT=https://hf-mirror.com`。
 
 默认数据库地址为：
 

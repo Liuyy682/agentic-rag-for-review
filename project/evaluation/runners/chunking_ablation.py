@@ -10,9 +10,7 @@ from typing import Iterable
 
 import numpy as np
 import pandas as pd
-from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.preprocessing import normalize
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 if str(PROJECT_DIR) not in sys.path:
@@ -22,6 +20,7 @@ import config
 from evaluation.io import write_jsonl, write_metrics_csv
 from evaluation.ragbench_keys import document_id_from_sentence_key
 from evaluation.validation import build_validity_summary, make_warning, validation_markdown_section, write_validation_outputs
+from retrieval.embeddings import DenseEmbeddingModel
 
 
 DEFAULT_VARIANTS = [
@@ -157,12 +156,8 @@ def main() -> None:
     write_validation_outputs(output_dir, validation_warnings, validity_summary)
 
     questions = [row["question"] for row in rows]
-    model = SentenceTransformer(
-        config.DENSE_MODEL,
-        cache_folder=getattr(config, "HF_CACHE_DIR", None),
-        local_files_only=True,
-    )
-    query_embeddings = normalize(model.encode(questions, batch_size=32, show_progress_bar=True))
+    model = DenseEmbeddingModel(local_files_only=True)
+    query_embeddings = model.encode_queries(questions, batch_size=32, show_progress_bar=True)
 
     summaries = []
     for variant in variants:
@@ -460,13 +455,13 @@ def evaluate_variant(
     chunks: list[Chunk],
     parents: dict[str, Chunk],
     query_embeddings,
-    model: SentenceTransformer,
+    model: DenseEmbeddingModel,
     dense_top_k: int,
     sparse_top_k: int,
     k_values: list[int],
 ) -> tuple[dict[str, float], list[dict]]:
     chunk_texts = [chunk.text for chunk in chunks]
-    chunk_embeddings = normalize(model.encode(chunk_texts, batch_size=64, show_progress_bar=True))
+    chunk_embeddings = model.encode_documents(chunk_texts, batch_size=64, show_progress_bar=True)
     vectorizer = TfidfVectorizer(ngram_range=(1, 2), lowercase=True)
     sparse_matrix = vectorizer.fit_transform(chunk_texts)
     query_sparse = vectorizer.transform(row["question"] for row in rows)
@@ -723,7 +718,7 @@ def write_report(
         f"- Dataset: `{dataset_label}`",
         f"- Rows: {len(rows)}",
         f"- Source documents: {len(source_docs)}",
-        f"- Retrieval: all-mpnet-base-v2 dense + TF-IDF sparse, RRF fusion",
+        f"- Retrieval: {config.DENSE_MODEL} dense + TF-IDF sparse, RRF fusion",
         f"- Reranker: disabled to isolate chunking strategy",
         f"- Variants: {', '.join(variant.name for variant in variants)}",
         "",

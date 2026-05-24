@@ -138,7 +138,9 @@ SPARSE_VECTOR_NAME = "sparse"               # Named sparse vector field (BM25)
 
 ```python
 # Default: single model configuration
-DENSE_MODEL = "sentence-transformers/all-mpnet-base-v2"
+DENSE_MODEL = "BAAI/bge-large-zh-v1.5"
+DENSE_EMBEDDING_DIMENSION = 1024
+RERANKER_MODEL = "BAAI/bge-reranker-large"
 SPARSE_MODEL = "Qdrant/bm25"
 LLM_MODEL = "qwen3:4b-instruct-2507-q4_K_M"
 LLM_TEMPERATURE = 0  # 0 = deterministic, 1 = creative
@@ -354,35 +356,31 @@ ACTIVE_LLM_CONFIG = "google"  # Switch to Gemini Pro
 **Step 1:** Update `project/config.py`
 
 ```python
-# Example: Faster, smaller model
-DENSE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+# Current Chinese retrieval model
+DENSE_MODEL = "BAAI/bge-large-zh-v1.5"
+DENSE_EMBEDDING_DIMENSION = 1024
+DENSE_QUERY_INSTRUCTION = "为这个句子生成表示以用于检索相关文章："
+DENSE_NORMALIZE_EMBEDDINGS = True
 
-# Example: Higher quality, slower model
-# DENSE_MODEL = "sentence-transformers/all-mpnet-base-v2"
+# Current Chinese reranker
+RERANKER_MODEL = "BAAI/bge-reranker-large"
 
-# Example: Gemma embeddings (Google's open model)
-# DENSE_MODEL = "google/embeddinggemma-300m"
-
-# Example: Qwen embeddings (Alibaba's multilingual model)
-# DENSE_MODEL = "Qwen/Qwen3-Embedding-8B"
-
-SPARSE_MODEL = "Qdrant/bm25"  # Usually no need to change
+SPARSE_MODEL = "Qdrant/bm25"
 ```
 
-**Step 2:** Re-index your documents
+If direct Hugging Face access is unstable, set the mirror before starting the app:
 
-⚠️ **Important:** Changing embeddings requires re-indexing all documents through the Gradio UI.
-
-**Implementation Details** (in `project/storage/vector_store.py`):
-
-```python
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_qdrant import FastEmbedSparse
-import config
-
-self.__dense_embeddings = HuggingFaceEmbeddings(model_name=config.DENSE_MODEL)
-self.__sparse_embeddings = FastEmbedSparse(model_name=config.SPARSE_MODEL)
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
 ```
+
+**Step 2:** Apply the migration and re-index your documents
+
+```bash
+alembic upgrade head
+```
+
+⚠️ **Important:** `BAAI/bge-large-zh-v1.5` uses 1024-dimensional vectors. Migration `002` destructively recreates `parent_chunks` and `child_chunks`; after migration, use the Gradio UI to clear/re-index documents.
 
 **Popular Embedding Models:**
 
@@ -390,7 +388,8 @@ self.__sparse_embeddings = FastEmbedSparse(model_name=config.SPARSE_MODEL)
 |-------|--------------|------------------|-------|---------|----------|
 | all-MiniLM-L6-v2 | 256 tokens | 384 | Fast | Good | General purpose, quick semantic similarity |
 | all-mpnet-base-v2 | 512 tokens | 768 | Medium | Excellent | High-accuracy semantic search |
-| bge-large-en-v1.5 | 512 tokens | 1024 | Slow | Best | Production-grade retrieval on GPU |
+| BAAI/bge-large-zh-v1.5 | 512 tokens | 1024 | Slow | Excellent | Chinese retrieval on GPU |
+| BAAI/bge-base-zh-v1.5 | 512 tokens | 768 | Medium | Very Good | Chinese retrieval with existing 768-dim stores |
 | google/embeddinggemma-300m | 2048 tokens | 768 | Fast | Very Good | Lightweight, efficient multilingual retrieval |
 | Qwen/Qwen3-Embedding-8B | 32768 tokens | 4096 | Slow | Excellent / SOTA | Large-scale multilingual embeddings, long-context RAG |
 
@@ -447,7 +446,7 @@ Upload documents again through the Gradio interface to apply new chunking.
 **Chunking Guidelines:**
 
 > ⚠️ **Disclaimer:** These are empirical guidelines. Optimal sizes depend on:
-> - **Child chunk** → embedding model's context window (e.g. 256 tokens for all-MiniLM-L6-v2, 512 for bge-large-en-v1.5): child size should not exceed it
+> - **Child chunk** → embedding model's context window (e.g. 512 tokens for BAAI/bge-large-zh-v1.5): child size should not exceed it
 > - **Parent chunk** → generative model's context window (e.g. 8K, 32K, 128K tokens): parent must fit within the context sent to the LLM alongside the query
 >
 > Always validate values empirically on your own corpus.
@@ -629,8 +628,8 @@ Once running, open `http://localhost:7860`.
 | Issue | Cause | Solution |
 |-------|-------|----------|
 | "Model not found" error | Incorrect model name for provider | Verify `LLM_MODEL` matches provider's API (e.g., `gpt-4o-mini` not `gpt4-mini`) |
-| Low-quality retrieval results | Poor embedding model or chunk configuration | Re-index with better embeddings (e.g., all-mpnet-base-v2) or adjust chunk sizes |
-| Slow response times | Large embedding model or high `top_k` value | Use smaller embedding models (e.g., all-MiniLM-L6-v2) or reduce `top_k` in retrieval tools |
+| Low-quality retrieval results | Poor embedding model or chunk configuration | Re-index documents after changing embeddings or adjust chunk sizes |
+| Slow response times | Large embedding model or high `top_k` value | Use a smaller embedding model (e.g., BAAI/bge-base-zh-v1.5) or reduce `top_k` in retrieval tools |
 | API rate limits exceeded | Too many requests to external provider | Add retry logic with exponential backoff or switch to local Ollama models |
 | Out of memory errors | Large document set or embedding model | Use smaller embeddings, reduce batch size, or enable GPU acceleration |
 | Empty retrieval results | Collection not indexed or wrong collection name | Verify documents are uploaded and `CHILD_COLLECTION` name matches in config |

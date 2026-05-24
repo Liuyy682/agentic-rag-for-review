@@ -4,14 +4,13 @@ collection: document_child_chunks
 retrieval:
   mode: hybrid
   top_k: 10
-  reranker: null
+  reranker: BAAI/bge-reranker-large
 chunking:
   child_chunk_size: 500
   child_chunk_overlap: 100
   min_parent_size: 2000
   max_parent_size: 4000
 models:
-  dense_model: sentence-transformers/all-mpnet-base-v2
+  dense_model: BAAI/bge-large-zh-v1.5
   sparse_model: Qdrant/bm25
   llm_model: gpt-4o
-

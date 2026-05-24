@@ -74,7 +74,7 @@ DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_MODEL=deepseek-chat
 ```
 
-Optional project-level settings for Langfuse and multimodal ingestion are documented in `project/.env.example`.
+Optional project-level settings for Hugging Face mirrors, Langfuse, and multimodal ingestion are documented in `project/.env.example`.
 
 ## Database
 
@@ -89,6 +89,8 @@ Apply the schema migration:
 ```bash
 alembic upgrade head
 ```
+
+The current default retrieval stack uses `BAAI/bge-large-zh-v1.5` embeddings and `BAAI/bge-reranker-large`. Migration `002` recreates `parent_chunks` and `child_chunks` for 1024-dimensional embeddings, so re-index documents after upgrading. If Hugging Face direct access is unstable, set `HF_ENDPOINT=https://hf-mirror.com` before starting the app.
 
 The default database URL is:
 

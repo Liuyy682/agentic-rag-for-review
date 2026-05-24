@@ -38,6 +38,9 @@ def current_index_config() -> dict:
     }
     embedding_config = {
         "dense_model": config.DENSE_MODEL,
+        "dense_embedding_dimension": config.DENSE_EMBEDDING_DIMENSION,
+        "dense_query_instruction": config.DENSE_QUERY_INSTRUCTION,
+        "dense_normalize_embeddings": config.DENSE_NORMALIZE_EMBEDDINGS,
         "sparse_model": config.SPARSE_MODEL,
         "sparse_vector_name": config.SPARSE_VECTOR_NAME,
     }

@@ -74,13 +74,15 @@ class TestCrossEncoderReranker(unittest.TestCase):
                 calls.append((args, kwargs))
                 raise OSError("model unavailable")
 
-        with patch("retrieval.reranker.CrossEncoder", FailingCrossEncoder):
+        with patch("retrieval.reranker.CrossEncoder", FailingCrossEncoder), \
+            patch("config.RERANKER_LOCAL_FILES_ONLY", True):
             with self.assertRaises(RerankerUnavailable):
                 get_reranker()
             with self.assertRaises(RerankerUnavailable):
                 get_reranker()
 
         self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0][0], "BAAI/bge-reranker-large")
         self.assertTrue(calls[0][1]["local_files_only"])
 
 
