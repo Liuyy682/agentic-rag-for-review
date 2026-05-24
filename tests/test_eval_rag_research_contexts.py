@@ -6,7 +6,11 @@ from pathlib import Path
 PROJECT_DIR = Path(__file__).resolve().parents[1] / "project"
 sys.path.insert(0, str(PROJECT_DIR))
 
-from langchain_core.messages import ToolMessage
+try:
+    from langchain_core.messages import ToolMessage
+except ModuleNotFoundError as exc:
+    raise unittest.SkipTest("langchain_core is not installed in this environment") from exc
+
 from evaluation.runners.ragbench_local_rag_runner import (
     _rag_research_diagnostics_from_state,
     _tool_contexts_from_state,

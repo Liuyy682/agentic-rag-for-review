@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
 from evaluation.data import dataset_stats, EvalQuestion
+from evaluation.validation import validation_markdown_section
 
 
 def write_retrieval_report(
@@ -10,6 +11,8 @@ def write_retrieval_report(
     questions: Iterable[EvalQuestion],
     metrics: Dict[str, float],
     error_cases: List[Dict[str, Any]],
+    validation_warnings: List[Dict[str, Any]] | None = None,
+    validity_summary: Dict[str, Any] | None = None,
 ) -> None:
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -24,6 +27,8 @@ def write_retrieval_report(
         f"- dataset_path: `{run_metadata.get('dataset_path')}`",
         f"- retrieval_mode: `{run_metadata.get('retrieval_mode')}`",
         f"- top_k: `{run_metadata.get('top_k')}`",
+        f"- configured_top_k: `{run_metadata.get('configured_top_k', run_metadata.get('top_k'))}`",
+        f"- effective_top_k: `{run_metadata.get('effective_top_k', run_metadata.get('top_k'))}`",
         "",
         "## Dataset",
         f"- total: {stats['total']}",
@@ -45,6 +50,7 @@ def write_retrieval_report(
             )
     else:
         lines.append("- No retrieval failure cases detected by the current rules.")
+    lines.extend(validation_markdown_section(validation_warnings or [], validity_summary))
     lines.append("")
     output.write_text("\n".join(lines), encoding="utf-8")
 
@@ -54,6 +60,8 @@ def write_ragas_report(
     run_metadata: Dict[str, Any],
     metrics: Dict[str, float],
     error_cases: List[Dict[str, Any]],
+    validation_warnings: List[Dict[str, Any]] | None = None,
+    validity_summary: Dict[str, Any] | None = None,
 ) -> None:
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -77,6 +85,7 @@ def write_ragas_report(
             lines.append(f"- `{case['question_id']}` {case['failure_type']}: {case['question'][:140]}")
     else:
         lines.append("- No RAGAS failure cases detected by the current rules.")
+    lines.extend(validation_markdown_section(validation_warnings or [], validity_summary))
     lines.append("")
     output.write_text("\n".join(lines), encoding="utf-8")
 
@@ -103,4 +112,3 @@ def write_compare_report(
         lines.append(f"| {key} | {base:.4f} | {curr:.4f} | {curr - base:+.4f} |")
     lines.append("")
     output.write_text("\n".join(lines), encoding="utf-8")
-

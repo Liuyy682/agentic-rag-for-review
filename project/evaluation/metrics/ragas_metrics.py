@@ -95,21 +95,23 @@ def run_ragas_metrics(
 
 
 def summarize_ragas_rows(rows: List[Dict[str, Any]]) -> Dict[str, float]:
-    metric_keys = [
-        "faithfulness",
-        "answer_relevancy",
-        "response_relevancy",
-        "context_precision",
-        "llm_context_precision_with_reference",
-        "context_recall",
-    ]
+    metric_groups = {
+        "faithfulness": ["faithfulness"],
+        "answer_relevancy": ["answer_relevancy"],
+        "response_relevancy": ["response_relevancy"],
+        "context_precision": ["context_precision", "llm_context_precision_with_reference"],
+        "context_recall": ["context_recall"],
+    }
     summary: Dict[str, float] = {"rows": float(len(rows))}
-    for key in metric_keys:
-        values = [_to_float(row.get(key)) for row in rows]
-        values = [value for value in values if value is not None]
-        if values:
-            output_key = "context_precision" if key == "llm_context_precision_with_reference" else key
-            summary[output_key] = sum(values) / len(values)
+    for output_key, source_keys in metric_groups.items():
+        values = [_first_float(row, source_keys) for row in rows]
+        valid_values = [value for value in values if value is not None]
+        if valid_values:
+            summary[output_key] = sum(valid_values) / len(valid_values)
+        metric_present = any(key in row for row in rows for key in source_keys)
+        if rows and (output_key in {"faithfulness", "context_precision", "context_recall"} or valid_values or metric_present):
+            summary[f"{output_key}_rows"] = float(len(valid_values))
+            summary[f"{output_key}_missing_rows"] = float(len(rows) - len(valid_values))
     return summary
 
 
@@ -125,6 +127,14 @@ def _to_float(value: Any) -> float | None:
         return None
 
 
+def _first_float(row: Dict[str, Any], keys: List[str]) -> float | None:
+    for key in keys:
+        value = _to_float(row.get(key))
+        if value is not None:
+            return value
+    return None
+
+
 def _ragas_max_tokens() -> int | None:
     raw = os.environ.get("RAGAS_MAX_TOKENS", "4096").strip().lower()
     if raw in {"", "none", "null", "unlimited", "0"}:
@@ -134,18 +144,39 @@ def _ragas_max_tokens() -> int | None:
 
 def build_ragas_error_cases(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     cases = []
-    thresholds = {
+    required_thresholds = {
         "faithfulness": 0.75,
-        "answer_relevancy": 0.75,
-        "response_relevancy": 0.75,
         "context_precision": 0.65,
         "context_recall": 0.70,
     }
+    optional_thresholds = {
+        "answer_relevancy": 0.75,
+        "response_relevancy": 0.75,
+    }
     for row in rows:
-        low = [metric for metric, threshold in thresholds.items() if row.get(metric) is not None and row.get(metric) < threshold]
-        if not low:
+        metric_values = {
+            "faithfulness": _first_float(row, ["faithfulness"]),
+            "context_precision": _first_float(row, ["context_precision", "llm_context_precision_with_reference"]),
+            "context_recall": _first_float(row, ["context_recall"]),
+            "answer_relevancy": _first_float(row, ["answer_relevancy"]),
+            "response_relevancy": _first_float(row, ["response_relevancy"]),
+        }
+        missing = [metric for metric in required_thresholds if metric_values.get(metric) is None]
+        low = [
+            metric
+            for metric, threshold in required_thresholds.items()
+            if metric_values.get(metric) is not None and metric_values[metric] < threshold
+        ]
+        low.extend(
+            metric
+            for metric, threshold in optional_thresholds.items()
+            if metric in row
+            and metric_values.get(metric) is not None
+            and metric_values[metric] < threshold
+        )
+        if not low and not missing:
             continue
-        failure_type = "hallucination" if "faithfulness" in low else "low_answer_quality"
+        failure_type = "judge_metric_missing" if missing else ("hallucination" if "faithfulness" in low else "low_answer_quality")
         if "context_recall" in low:
             failure_type = "insufficient_context"
         cases.append(
@@ -155,6 +186,7 @@ def build_ragas_error_cases(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "answer": row["answer"],
                 "failure_type": failure_type,
                 "low_metrics": low,
+                "missing_metrics": missing,
                 "retrieved_contexts": row["retrieved_contexts"],
             }
         )

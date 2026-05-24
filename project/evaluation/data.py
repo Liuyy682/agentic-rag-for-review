@@ -10,12 +10,19 @@ class EvalQuestion:
     question: str
     reference_answer: str
     source_file: str
+    gold_source_files: List[str] = field(default_factory=list)
     gold_parent_ids: List[str] = field(default_factory=list)
     gold_child_ids: List[str] = field(default_factory=list)
     gold_evidence_text: List[str] = field(default_factory=list)
     question_type: str = "unknown"
     difficulty: str = "unknown"
     tags: List[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.source_file and not self.gold_source_files:
+            self.gold_source_files = [self.source_file]
+        elif self.source_file and self.source_file not in self.gold_source_files:
+            self.gold_source_files.insert(0, self.source_file)
 
     @classmethod
     def from_dict(cls, raw: Dict[str, Any], line_no: int) -> "EvalQuestion":
@@ -25,17 +32,20 @@ class EvalQuestion:
             raise ValueError(f"line {line_no}: missing required fields: {', '.join(missing)}")
 
         source_file = raw["source_file"]
-        gold_source_files = raw.get("gold_source_files") or []
+        gold_source_files = list(raw.get("gold_source_files") or [])
         if isinstance(source_file, list):
             source_file = source_file[0] if source_file else ""
         if gold_source_files and source_file not in gold_source_files:
             gold_source_files.insert(0, source_file)
+        if not gold_source_files and source_file:
+            gold_source_files = [source_file]
 
         return cls(
             question_id=str(raw["question_id"]),
             question=str(raw["question"]),
             reference_answer=str(raw["reference_answer"]),
             source_file=str(source_file),
+            gold_source_files=[str(item) for item in gold_source_files if item],
             gold_parent_ids=list(raw.get("gold_parent_ids") or []),
             gold_child_ids=list(raw.get("gold_child_ids") or []),
             gold_evidence_text=list(raw.get("gold_evidence_text") or []),
@@ -44,16 +54,13 @@ class EvalQuestion:
             tags=list(raw.get("tags") or []),
         )
 
-    @property
-    def gold_source_files(self) -> List[str]:
-        return [self.source_file] if self.source_file else []
-
     def to_dict(self) -> Dict[str, Any]:
         return {
             "question_id": self.question_id,
             "question": self.question,
             "reference_answer": self.reference_answer,
             "source_file": self.source_file,
+            "gold_source_files": self.gold_source_files,
             "gold_parent_ids": self.gold_parent_ids,
             "gold_child_ids": self.gold_child_ids,
             "gold_evidence_text": self.gold_evidence_text,
@@ -110,4 +117,3 @@ def dataset_stats(questions: Iterable[EvalQuestion]) -> Dict[str, Any]:
 
 def _ratio(numerator: int, denominator: int) -> float:
     return round(numerator / denominator, 4) if denominator else 0.0
-

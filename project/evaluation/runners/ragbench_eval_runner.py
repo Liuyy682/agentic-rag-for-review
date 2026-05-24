@@ -14,7 +14,14 @@ from evaluation.io import read_jsonl, read_metrics_csv, write_jsonl, write_metri
 from evaluation.llm_config import answer_model as resolve_answer_model
 from evaluation.llm_config import api_key, base_url
 from evaluation.metrics.ragas_metrics import build_ragas_error_cases, run_ragas_metrics
+from evaluation.ragbench_keys import document_id_from_sentence_key
 from evaluation.runners.ragbench_importer import fetch_ragbench_rows
+from evaluation.validation import (
+    build_validity_summary,
+    make_warning,
+    validate_ragas_rows,
+    write_validation_outputs,
+)
 
 
 def run_ragbench_eval(
@@ -35,11 +42,31 @@ def run_ragbench_eval(
 
     rows = fetch_ragbench_rows(subset=subset, split=split, limit=limit, offset=offset)
     retrieval_metrics, retrieval_details = compute_ragbench_retrieval_metrics(rows)
+    metadata = build_ragbench_eval_metadata(subset=subset, split=split, rows=len(rows))
+    reuse_warnings: List[Dict[str, Any]] = []
 
-    if reuse_existing and (output / "rag_outputs.jsonl").exists() and (output / "ragas_metrics_summary.csv").exists():
+    if (
+        reuse_existing
+        and (output / "rag_outputs.jsonl").exists()
+        and (output / "ragas_results.jsonl").exists()
+        and (output / "ragas_metrics_summary.csv").exists()
+    ):
         outputs = read_jsonl(output / "rag_outputs.jsonl")
-        ragas_results = read_jsonl(output / "ragas_results.jsonl") if (output / "ragas_results.jsonl").exists() else []
-        ragas_metrics = read_metrics_csv(output / "ragas_metrics_summary.csv")
+        reusable, reuse_warnings = validate_reuse_existing_outputs(rows, outputs, subset=subset, split=split)
+        if reusable:
+            ragas_results = read_jsonl(output / "ragas_results.jsonl") if (output / "ragas_results.jsonl").exists() else []
+            ragas_metrics = read_metrics_csv(output / "ragas_metrics_summary.csv")
+        else:
+            outputs = [answer_ragbench_row(row, subset, split, answer_model) for row in rows]
+            ragas_results, ragas_metrics = run_ragas_metrics(
+                outputs,
+                timeout=ragas_timeout,
+                max_retries=ragas_max_retries,
+                max_workers=ragas_max_workers,
+                batch_size=ragas_batch_size,
+            )
+            metadata["reuse_existing_rejected"] = True
+            metadata["reuse_existing_warnings"] = reuse_warnings
     else:
         outputs = [answer_ragbench_row(row, subset, split, answer_model) for row in rows]
         ragas_results, ragas_metrics = run_ragas_metrics(
@@ -50,6 +77,28 @@ def run_ragbench_eval(
             batch_size=ragas_batch_size,
         )
     error_cases = build_ragas_error_cases(ragas_results)
+    validation_warnings = [
+        make_warning(
+            "oracle_context_generation_eval",
+            "RAGBench documents are passed directly as contexts; this run does not evaluate the project retriever.",
+        )
+    ]
+    if not rows:
+        validation_warnings.append(
+            make_warning(
+                "empty_dataset",
+                "Fetched RAGBench subset returned no rows; metrics are not usable for conclusions.",
+                severity="error",
+            )
+        )
+    validation_warnings.extend(reuse_warnings)
+    validation_warnings.extend(validate_ragas_rows(ragas_results, expected_rows=len(outputs)))
+    validity_summary = build_validity_summary(
+        rows=len(rows),
+        warnings=validation_warnings,
+        evaluation_type=metadata["evaluation_type"],
+    )
+    metadata["validity_summary"] = validity_summary
 
     write_jsonl(output / "rag_outputs.jsonl", outputs)
     write_jsonl(output / "ragas_results.jsonl", ragas_results)
@@ -57,7 +106,20 @@ def run_ragbench_eval(
     write_jsonl(output / "retrieval_metrics_by_question.jsonl", retrieval_details)
     write_metrics_csv(output / "ragas_metrics_summary.csv", ragas_metrics)
     write_metrics_csv(output / "retrieval_metrics_summary.csv", retrieval_metrics)
-    write_report(output / "ragbench_ragas_report.md", subset, split, limit, ragas_metrics, retrieval_metrics, error_cases)
+    (output / "run_metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_validation_outputs(output, validation_warnings, validity_summary)
+    write_report(
+        output / "ragbench_ragas_report.md",
+        subset,
+        split,
+        limit,
+        ragas_metrics,
+        retrieval_metrics,
+        error_cases,
+        metadata=metadata,
+        validation_warnings=validation_warnings,
+        validity_summary=validity_summary,
+    )
 
     return {
         "subset": subset,
@@ -69,6 +131,46 @@ def run_ragbench_eval(
         "retrieval_metrics": retrieval_metrics,
         "report": str(output / "ragbench_ragas_report.md"),
     }
+
+
+def build_ragbench_eval_metadata(subset: str, split: str, rows: int) -> Dict[str, Any]:
+    return {
+        "evaluation_type": "oracle_context_generation_eval",
+        "subset": subset,
+        "split": split,
+        "rows": rows,
+        "uses_project_retriever": False,
+        "uses_oracle_contexts": True,
+        "notes": "RAGBench documents are passed directly as contexts; this does not evaluate the project retriever.",
+    }
+
+
+def validate_reuse_existing_outputs(
+    rows: List[Dict[str, Any]],
+    outputs: List[Dict[str, Any]],
+    subset: str,
+    split: str,
+) -> tuple[bool, List[Dict[str, Any]]]:
+    expected_ids = [f"ragbench_{subset}_{split}_{str(row.get('id', '')).replace('/', '_')}" for row in rows]
+    actual_ids = [str(row.get("question_id", "")) for row in outputs]
+    if expected_ids == actual_ids:
+        return True, []
+    return (
+        False,
+        [
+            make_warning(
+                "reuse_existing_question_mismatch",
+                "Existing RAG/RAGAS outputs do not match the requested RAGBench rows and will not be reused.",
+                severity="error",
+                details={
+                    "expected_rows": len(expected_ids),
+                    "actual_rows": len(actual_ids),
+                    "expected_preview": expected_ids[:5],
+                    "actual_preview": actual_ids[:5],
+                },
+            )
+        ],
+    )
 
 
 def answer_ragbench_row(
@@ -136,7 +238,7 @@ def score_ragbench_context_order(row: Dict[str, Any]) -> Dict[str, Any]:
     relevant_sentences = set(row.get("all_relevant_sentence_keys") or [])
     sentence_order = [sentence[0] for group in row.get("documents_sentences") or [] for sentence in group]
     document_order = [str(index) for index, _ in enumerate(row.get("documents") or [])]
-    relevant_documents = sorted({_document_id_from_sentence_key(key) for key in relevant_sentences if key})
+    relevant_documents = sorted({document_id_from_sentence_key(key) for key in relevant_sentences if key})
 
     result: Dict[str, Any] = {
         "question_id": row.get("id"),
@@ -177,16 +279,6 @@ def ndcg_at_k(top_k: List[str], relevant_ids: set[str], k: int) -> float:
     return dcg / idcg if idcg else 0.0
 
 
-def _document_id_from_sentence_key(key: str) -> str:
-    digits = []
-    for char in str(key):
-        if char.isdigit():
-            digits.append(char)
-        else:
-            break
-    return "".join(digits) if digits else ""
-
-
 def write_report(
     path: Path,
     subset: str,
@@ -195,14 +287,21 @@ def write_report(
     ragas_metrics: Dict[str, float],
     retrieval_metrics: Dict[str, float],
     error_cases: List[Dict[str, Any]],
+    metadata: Dict[str, Any] | None = None,
+    validation_warnings: List[Dict[str, Any]] | None = None,
+    validity_summary: Dict[str, Any] | None = None,
 ) -> None:
+    from evaluation.validation import validation_markdown_section
+
     lines = [
-        "# RAGBench + RAGAS Report",
+        "# RAGBench Oracle-Context Generation Report",
         "",
         "## Dataset",
         f"- subset: `{subset}`",
         f"- split: `{split}`",
         f"- rows: {limit}",
+        f"- evaluation_type: `{(metadata or {}).get('evaluation_type', 'oracle_context_generation_eval')}`",
+        f"- uses_project_retriever: `{str((metadata or {}).get('uses_project_retriever', False)).lower()}`",
         "",
         "## RAGAS Metrics",
         "| Metric | Score |",
@@ -235,6 +334,7 @@ def write_report(
             lines.append(f"- `{case['question_id']}` {case['failure_type']}: {case['question'][:140]}")
     else:
         lines.append("- No failure cases detected by current thresholds.")
+    lines.extend(validation_markdown_section(validation_warnings or [], validity_summary))
     lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")
 

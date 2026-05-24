@@ -20,6 +20,8 @@ if str(PROJECT_DIR) not in sys.path:
 
 import config
 from evaluation.io import write_jsonl, write_metrics_csv
+from evaluation.ragbench_keys import document_id_from_sentence_key
+from evaluation.validation import build_validity_summary, make_warning, validation_markdown_section, write_validation_outputs
 
 
 DEFAULT_VARIANTS = [
@@ -120,6 +122,39 @@ def main() -> None:
 
     output_dir = Path(args.output_dir) / f"run_{datetime.now().strftime('%Y_%m_%d_%H%M%S')}_chunking_ablation"
     output_dir.mkdir(parents=True, exist_ok=True)
+    validation_warnings = []
+    if not rows:
+        validation_warnings.append(
+            make_warning(
+                "empty_dataset",
+                "Chunking ablation received no rows; no metric values are usable for conclusions.",
+                severity="error",
+            )
+        )
+        validity_summary = build_validity_summary(
+            rows=0,
+            warnings=validation_warnings,
+            evaluation_type="chunking_ablation",
+        )
+        write_validation_outputs(output_dir, validation_warnings, validity_summary)
+        write_jsonl(output_dir / "summary.jsonl", [])
+        write_summary_csv(output_dir / "summary.csv", [])
+        (output_dir / "report.md").write_text(
+            "\n".join(
+                ["# Chunking Ablation Report", "", "No rows were available for evaluation."]
+                + validation_markdown_section(validation_warnings, validity_summary)
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        print(output_dir)
+        return
+    validity_summary = build_validity_summary(
+        rows=len(rows),
+        warnings=validation_warnings,
+        evaluation_type="chunking_ablation",
+    )
+    write_validation_outputs(output_dir, validation_warnings, validity_summary)
 
     questions = [row["question"] for row in rows]
     model = SentenceTransformer(
@@ -152,7 +187,17 @@ def main() -> None:
     summaries = add_balanced_scores(summaries)
     write_jsonl(output_dir / "summary.jsonl", summaries)
     write_summary_csv(output_dir / "summary.csv", summaries)
-    write_report(output_dir / "report.md", summaries, rows, source_docs, variants, args, dataset_label)
+    write_report(
+        output_dir / "report.md",
+        summaries,
+        rows,
+        source_docs,
+        variants,
+        args,
+        dataset_label,
+        validation_warnings,
+        validity_summary,
+    )
     print(output_dir)
 
 
@@ -459,7 +504,7 @@ def score_question(
     gold_sentence_keys = set(row.get("all_relevant_sentence_keys") or row.get("gold_sentence_keys") or [])
     gold_doc_ids = set(row.get("gold_source_doc_ids") or [])
     if not gold_doc_ids:
-        gold_doc_ids = {f"{row['question_id']}_doc_{key[0]}" for key in gold_sentence_keys if key}
+        gold_doc_ids = {f"{row['question_id']}_doc_{document_id_from_sentence_key(key)}" for key in gold_sentence_keys if key}
     result = {
         "question_id": row["question_id"],
         "question": row["question"],
@@ -584,6 +629,18 @@ def reciprocal_rank(retrieved: list[Chunk], gold_doc_ids: set[str]) -> float:
 
 
 def aggregate_metrics(per_question: list[dict], chunks: list[Chunk], variant: Variant) -> dict[str, float]:
+    if not per_question:
+        return {
+            "rows": 0.0,
+            "index_chunks": float(len(chunks)),
+            "avg_chunk_chars": mean(len(chunk.text) for chunk in chunks),
+            "strategy_parent_child": 1.0 if variant.strategy == "parent_child" else 0.0,
+            "child_size": float(variant.child_size),
+            "child_overlap": float(variant.child_overlap),
+            "parent_size": float(variant.parent_size or 0),
+            "parent_overlap": float(variant.parent_overlap),
+            "evaluation_valid": 0.0,
+        }
     keys = [key for key in per_question[0] if key not in {"question_id", "question"}]
     metrics = {key: mean(row.get(key, 0.0) for row in per_question) for key in keys}
     metrics.update(
@@ -655,6 +712,8 @@ def write_report(
     variants: list[Variant],
     args,
     dataset_label: str,
+    validation_warnings: list[dict] | None = None,
+    validity_summary: dict | None = None,
 ) -> None:
     best_parent_child = next(row for row in summaries if row["strategy"] == "parent_child")
     best_single = next(row for row in summaries if row["strategy"] == "single")
@@ -726,6 +785,7 @@ def write_report(
             "- Single variants retrieve and return the same fixed-size chunk.",
         ]
     )
+    lines.extend(validation_markdown_section(validation_warnings or [], validity_summary))
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

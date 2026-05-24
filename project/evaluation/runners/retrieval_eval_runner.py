@@ -18,6 +18,7 @@ from evaluation.metrics.retrieval_metrics import (
     compute_retrieval_metrics,
 )
 from evaluation.reports import write_retrieval_report
+from evaluation.validation import build_validity_summary, validate_retrieval_inputs, write_validation_outputs
 
 
 def run_retrieval_eval(
@@ -60,17 +61,50 @@ def run_retrieval_eval(
     metrics, per_question = compute_retrieval_metrics(questions, results, k_values=k_values)
     error_cases = build_retrieval_error_cases(questions, results, per_question, top_k=top_k)
     metadata = config_snapshot(run_id, dataset_path, dataset_version, top_k, score_threshold)
+    metadata.update(
+        {
+            "evaluation_type": "local_retriever_eval",
+            "configured_top_k": top_k,
+            "effective_top_k": min(top_k, config.RERANKER_FINAL_TOP_K) if config.RERANKER_ENABLED else top_k,
+            "retrieval_fusion_mode": config.RETRIEVAL_FUSION_MODE,
+        }
+    )
+    validation_warnings = validate_retrieval_inputs(
+        questions,
+        results,
+        k_values=k_values,
+        evaluation_type=metadata["evaluation_type"],
+        configured_top_k=top_k,
+        score_threshold=score_threshold,
+        retrieval_mode=config.RETRIEVAL_FUSION_MODE,
+    )
+    validity_summary = build_validity_summary(
+        rows=len(questions),
+        warnings=validation_warnings,
+        evaluation_type=metadata["evaluation_type"],
+    )
+    metadata["validity_summary"] = validity_summary
 
     write_jsonl(run_dir / "retrieval_results.jsonl", results)
     write_jsonl(run_dir / "retrieval_per_question_metrics.jsonl", per_question)
     write_jsonl(run_dir / "retrieval_error_cases.jsonl", error_cases)
     write_metrics_csv(run_dir / "retrieval_metrics_summary.csv", metrics)
     (run_dir / "run_metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_validation_outputs(run_dir, validation_warnings, validity_summary)
 
     write_jsonl(reports_dir / "retrieval_results.jsonl", results)
     write_jsonl(reports_dir / "retrieval_error_cases.jsonl", error_cases)
     write_metrics_csv(reports_dir / "retrieval_metrics_summary.csv", metrics)
-    write_retrieval_report(reports_dir / "retrieval_report.md", metadata, questions, metrics, error_cases)
+    write_validation_outputs(reports_dir, validation_warnings, validity_summary)
+    write_retrieval_report(
+        reports_dir / "retrieval_report.md",
+        metadata,
+        questions,
+        metrics,
+        error_cases,
+        validation_warnings=validation_warnings,
+        validity_summary=validity_summary,
+    )
 
     return {
         "run_id": run_id,

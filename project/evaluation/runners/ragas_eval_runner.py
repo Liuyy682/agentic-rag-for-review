@@ -15,6 +15,7 @@ from evaluation.io import config_snapshot, make_run_id, write_jsonl, write_metri
 from evaluation.metrics.ragas_metrics import build_ragas_error_cases, run_ragas_metrics
 from evaluation.reports import write_ragas_report
 from evaluation.runners.retrieval_eval_runner import retrieve_chunks
+from evaluation.validation import build_validity_summary, validate_ragas_rows, write_validation_outputs
 from langchain_core.messages import AIMessage, HumanMessage
 
 
@@ -79,11 +80,27 @@ def run_ragas_eval(
         )
 
     metadata = config_snapshot(run_id, dataset_path, dataset_version, top_k, score_threshold)
+    metadata.update(
+        {
+            "evaluation_type": "local_rag_generation_eval",
+            "configured_top_k": top_k,
+            "retrieval_fusion_mode": config.RETRIEVAL_FUSION_MODE,
+        }
+    )
     write_jsonl(run_dir / "rag_outputs.jsonl", outputs)
     write_jsonl(reports_dir / "rag_outputs.jsonl", outputs)
     (run_dir / "run_metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
 
     if skip_ragas:
+        validity_summary = build_validity_summary(
+            rows=len(outputs),
+            warnings=[],
+            evaluation_type=metadata["evaluation_type"],
+        )
+        metadata["validity_summary"] = validity_summary
+        (run_dir / "run_metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_validation_outputs(run_dir, [], validity_summary)
+        write_validation_outputs(reports_dir, [], validity_summary)
         return {"run_id": run_id, "run_dir": str(run_dir), "rag_outputs": str(run_dir / "rag_outputs.jsonl")}
 
     ragas_results, metrics = run_ragas_metrics(
@@ -94,13 +111,30 @@ def run_ragas_eval(
         batch_size=ragas_batch_size,
     )
     error_cases = build_ragas_error_cases(ragas_results)
+    validation_warnings = validate_ragas_rows(ragas_results, expected_rows=len(outputs))
+    validity_summary = build_validity_summary(
+        rows=len(outputs),
+        warnings=validation_warnings,
+        evaluation_type=metadata["evaluation_type"],
+    )
+    metadata["validity_summary"] = validity_summary
+    (run_dir / "run_metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
     write_jsonl(run_dir / "ragas_results.jsonl", ragas_results)
     write_jsonl(run_dir / "ragas_error_cases.jsonl", error_cases)
     write_metrics_csv(run_dir / "ragas_metrics_summary.csv", metrics)
+    write_validation_outputs(run_dir, validation_warnings, validity_summary)
     write_jsonl(reports_dir / "ragas_results.jsonl", ragas_results)
     write_jsonl(reports_dir / "ragas_error_cases.jsonl", error_cases)
     write_metrics_csv(reports_dir / "ragas_metrics_summary.csv", metrics)
-    write_ragas_report(reports_dir / "ragas_report.md", metadata, metrics, error_cases)
+    write_validation_outputs(reports_dir, validation_warnings, validity_summary)
+    write_ragas_report(
+        reports_dir / "ragas_report.md",
+        metadata,
+        metrics,
+        error_cases,
+        validation_warnings=validation_warnings,
+        validity_summary=validity_summary,
+    )
 
     return {
         "run_id": run_id,

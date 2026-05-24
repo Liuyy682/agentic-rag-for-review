@@ -19,8 +19,17 @@ from evaluation.llm_config import answer_model as resolve_answer_model
 from evaluation.llm_config import api_key, base_url
 from evaluation.metrics.ragas_metrics import build_ragas_error_cases, run_ragas_metrics
 from evaluation.metrics.retrieval_metrics import DEFAULT_K_VALUES, build_retrieval_error_cases, compute_retrieval_metrics
+from evaluation.ragbench_keys import document_id_from_sentence_key
+from evaluation.ragbench_metadata import build_ragbench_local_eval_metadata
 from evaluation.runners.ragbench_importer import import_ragbench
 from evaluation.runners.retrieval_eval_runner import retrieve_chunks
+from evaluation.validation import (
+    build_validity_summary,
+    make_warning,
+    validate_ragas_rows,
+    validate_retrieval_inputs,
+    write_validation_outputs,
+)
 from langchain_core.documents import Document
 from langchain_core.messages import ToolMessage
 from rag_agent.graph import create_agent_subgraph
@@ -198,12 +207,16 @@ def run_ragbench_local_rag_eval(
     retrieval_error_cases = build_retrieval_error_cases(questions, retrieval_rows, per_question, top_k=top_k)
     metadata = config_snapshot(str(run_id), str(dataset_path), f"ragbench_{subset}_{split}", top_k, None)
     metadata.update(
+        build_ragbench_local_eval_metadata(
+            subset=subset,
+            split=split,
+            limit=limit,
+            offset=offset,
+            collection_name=collection_name,
+        )
+    )
+    metadata.update(
         {
-            "ragbench_subset": subset,
-            "ragbench_split": split,
-            "ragbench_limit": limit,
-            "ragbench_offset": offset,
-            "collection_name": collection_name,
             "retrieval_fusion_mode": config.RETRIEVAL_FUSION_MODE,
             "dense_top_k": config.DENSE_TOP_K,
             "sparse_top_k": config.SPARSE_TOP_K,
@@ -219,6 +232,29 @@ def run_ragbench_local_rag_eval(
             "use_agent_graph": use_agent_graph,
         }
     )
+    validation_warnings = [
+        make_warning(
+            "synthetic_ragbench_document_retrieval",
+            "Each RAGBench document is indexed as one synthetic chunk; results do not represent production ingestion chunking.",
+        )
+    ]
+    validation_warnings.extend(
+        validate_retrieval_inputs(
+            questions,
+            retrieval_rows,
+            k_values=k_values,
+            evaluation_type=metadata["evaluation_type"],
+            configured_top_k=top_k,
+            score_threshold=None,
+            retrieval_mode=config.RETRIEVAL_FUSION_MODE,
+        )
+    )
+    validity_summary = build_validity_summary(
+        rows=len(questions),
+        warnings=validation_warnings,
+        evaluation_type=metadata["evaluation_type"],
+    )
+    metadata["validity_summary"] = validity_summary
 
     write_jsonl(run_dir / "retrieval_results.jsonl", retrieval_rows)
     write_jsonl(run_dir / "retrieval_per_question_metrics.jsonl", per_question)
@@ -227,6 +263,7 @@ def run_ragbench_local_rag_eval(
     write_jsonl(run_dir / "agent_diagnostics.jsonl", agent_diagnostics)
     write_metrics_csv(run_dir / "retrieval_metrics_summary.csv", retrieval_metrics)
     (run_dir / "run_metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_validation_outputs(run_dir, validation_warnings, validity_summary)
 
     latest_dir = output / "ragbench_local_rag_latest"
     if latest_dir.exists():
@@ -252,12 +289,23 @@ def run_ragbench_local_rag_eval(
         batch_size=ragas_batch_size,
     )
     ragas_error_cases = build_ragas_error_cases(ragas_results)
+    all_warnings = validation_warnings + validate_ragas_rows(ragas_results, expected_rows=len(ragas_outputs))
+    validity_summary = build_validity_summary(
+        rows=len(questions),
+        warnings=all_warnings,
+        evaluation_type=metadata["evaluation_type"],
+    )
+    metadata["validity_summary"] = validity_summary
+    (run_dir / "run_metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    (latest_dir / "run_metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
     write_jsonl(run_dir / "ragas_results.jsonl", ragas_results)
     write_jsonl(run_dir / "ragas_error_cases.jsonl", ragas_error_cases)
     write_metrics_csv(run_dir / "ragas_metrics_summary.csv", ragas_metrics)
+    write_validation_outputs(run_dir, all_warnings, validity_summary)
     write_jsonl(latest_dir / "ragas_results.jsonl", ragas_results)
     write_jsonl(latest_dir / "ragas_error_cases.jsonl", ragas_error_cases)
     write_metrics_csv(latest_dir / "ragas_metrics_summary.csv", ragas_metrics)
+    write_validation_outputs(latest_dir, all_warnings, validity_summary)
     result["ragas_metrics"] = ragas_metrics
     return result
 
@@ -281,13 +329,21 @@ def run_ragas_from_outputs(
         batch_size=ragas_batch_size,
     )
     ragas_error_cases = build_ragas_error_cases(ragas_results)
+    warnings = validate_ragas_rows(ragas_results, expected_rows=len(ragas_outputs))
+    summary = build_validity_summary(
+        rows=len(ragas_outputs),
+        warnings=warnings,
+        evaluation_type="ragas_from_existing_outputs",
+    )
     write_jsonl(run_dir / "ragas_results.jsonl", ragas_results)
     write_jsonl(run_dir / "ragas_error_cases.jsonl", ragas_error_cases)
     write_metrics_csv(run_dir / "ragas_metrics_summary.csv", ragas_metrics)
+    write_validation_outputs(run_dir, warnings, summary)
     latest_dir.mkdir(parents=True, exist_ok=True)
     write_jsonl(latest_dir / "ragas_results.jsonl", ragas_results)
     write_jsonl(latest_dir / "ragas_error_cases.jsonl", ragas_error_cases)
     write_metrics_csv(latest_dir / "ragas_metrics_summary.csv", ragas_metrics)
+    write_validation_outputs(latest_dir, warnings, summary)
     return {
         "run_dir": str(run_dir),
         "latest_dir": str(latest_dir),
@@ -517,7 +573,7 @@ def _ragbench_documents(rows: List[Dict[str, Any]]) -> List[Document]:
 
 def _context_row_to_eval_question(row: Dict[str, Any], line_no: int) -> EvalQuestion:
     relevant_sentence_keys = list(row.get("all_relevant_sentence_keys") or [])
-    relevant_doc_ids = sorted({key.split(" ")[0][0] for key in relevant_sentence_keys if key})
+    relevant_doc_ids = sorted({document_id_from_sentence_key(key) for key in relevant_sentence_keys if key})
     raw = {
         "question_id": row["question_id"],
         "question": row.get("question", ""),

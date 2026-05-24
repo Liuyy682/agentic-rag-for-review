@@ -22,6 +22,13 @@ from evaluation.io import write_jsonl, write_metrics_csv
 from evaluation.metrics.ragas_metrics import build_ragas_error_cases, run_ragas_metrics
 from evaluation.runners import chunking_ablation as retrieval_ablation
 from evaluation.runners.ragbench_eval_runner import generate_answer
+from evaluation.validation import (
+    build_validity_summary,
+    make_warning,
+    validate_ragas_rows,
+    validation_markdown_section,
+    write_validation_outputs,
+)
 
 
 DEFAULT_VARIANTS = "single_1200_240,pc_child,pc_neighbor,pc_parent,pc_adaptive"
@@ -62,6 +69,39 @@ def main() -> None:
 
     output_dir = Path(args.output_dir) / f"run_{datetime.now().strftime('%Y_%m_%d_%H%M%S')}_chunking_generation_ablation"
     output_dir.mkdir(parents=True, exist_ok=True)
+    validation_warnings = []
+    if not rows:
+        validation_warnings.append(
+            make_warning(
+                "empty_dataset",
+                "Chunking generation ablation received no rows; no metric values are usable for conclusions.",
+                severity="error",
+            )
+        )
+        validity_summary = build_validity_summary(
+            rows=0,
+            warnings=validation_warnings,
+            evaluation_type="chunking_generation_ablation",
+        )
+        write_validation_outputs(output_dir, validation_warnings, validity_summary)
+        write_jsonl(output_dir / "summary.jsonl", [])
+        write_summary_csv(output_dir / "summary.csv", [])
+        (output_dir / "report.md").write_text(
+            "\n".join(
+                ["# Chunking Generation Ablation Report", "", "No rows were available for evaluation."]
+                + validation_markdown_section(validation_warnings, validity_summary)
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        print(output_dir)
+        return
+    validity_summary = build_validity_summary(
+        rows=len(rows),
+        warnings=validation_warnings,
+        evaluation_type="chunking_generation_ablation",
+    )
+    write_validation_outputs(output_dir, validation_warnings, validity_summary)
 
     questions = [row["question"] for row in rows]
     model = SentenceTransformer(
@@ -94,6 +134,7 @@ def main() -> None:
         ragas_metrics: dict[str, float] = {"rows": float(len(outputs))}
         judge_metrics: dict[str, float] = {"rows": float(len(outputs))}
         error_cases: list[dict[str, Any]] = []
+        variant_warnings = []
         judge_mode = "none" if args.skip_ragas else args.judge_mode
         if judge_mode == "ragas":
             ragas_results, ragas_metrics = run_ragas_metrics(
@@ -104,6 +145,7 @@ def main() -> None:
                 batch_size=args.ragas_batch_size,
             )
             error_cases = build_ragas_error_cases(ragas_results)
+            variant_warnings.extend(validate_ragas_rows(ragas_results, expected_rows=len(outputs)))
             write_jsonl(variant_dir / "ragas_results.jsonl", ragas_results)
             write_jsonl(variant_dir / "ragas_error_cases.jsonl", error_cases)
             write_metrics_csv(variant_dir / "ragas_metrics_summary.csv", ragas_metrics)
@@ -121,10 +163,35 @@ def main() -> None:
             "ragas_error_cases": float(len(error_cases)),
         }
         summaries.append(summary)
+        validation_warnings.extend(
+            {
+                **warning,
+                "details": {
+                    **(warning.get("details") or {}),
+                    "variant": variant.name,
+                },
+            }
+            for warning in variant_warnings
+        )
+        write_validation_outputs(
+            variant_dir,
+            variant_warnings,
+            build_validity_summary(
+                rows=len(outputs),
+                warnings=variant_warnings,
+                evaluation_type=f"chunking_generation_ablation:{variant.name}",
+            ),
+        )
 
     write_jsonl(output_dir / "summary.jsonl", summaries)
     write_summary_csv(output_dir / "summary.csv", summaries)
-    write_report(output_dir / "report.md", summaries, args, len(rows))
+    validity_summary = build_validity_summary(
+        rows=len(rows),
+        warnings=validation_warnings,
+        evaluation_type="chunking_generation_ablation",
+    )
+    write_validation_outputs(output_dir, validation_warnings, validity_summary)
+    write_report(output_dir / "report.md", summaries, args, len(rows), validation_warnings, validity_summary)
     print(output_dir)
 
 
@@ -388,7 +455,14 @@ def write_summary_csv(path: Path, rows: list[dict[str, Any]]) -> None:
             file.write(",".join(format_value(row.get(key, "")) for key in keys) + "\n")
 
 
-def write_report(path: Path, rows: list[dict[str, Any]], args, limit: int) -> None:
+def write_report(
+    path: Path,
+    rows: list[dict[str, Any]],
+    args,
+    limit: int,
+    validation_warnings: list[dict] | None = None,
+    validity_summary: dict | None = None,
+) -> None:
     lines = [
         "# Chunking Generation Ablation Report",
         "",
@@ -435,6 +509,7 @@ def write_report(path: Path, rows: list[dict[str, Any]], args, limit: int) -> No
         for key in ["ragas_faithfulness", "judge_faithfulness", "judge_answer_correctness", "ragas_context_recall", "judge_context_recall"]:
             if key in left or key in right:
                 lines.append(f"- `{key}`: {right.get(key, 0.0) - left.get(key, 0.0):+.4f}")
+    lines.extend(validation_markdown_section(validation_warnings or [], validity_summary))
     lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")
 

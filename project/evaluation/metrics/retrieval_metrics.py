@@ -12,6 +12,7 @@ def compute_retrieval_metrics(
     result_rows: Sequence[Dict[str, Any]],
     k_values: Iterable[int] = DEFAULT_K_VALUES,
 ) -> tuple[Dict[str, float], List[Dict[str, Any]]]:
+    k_values = list(k_values)
     by_id = {row["question_id"]: row for row in result_rows}
     per_question: List[Dict[str, Any]] = []
 
@@ -32,6 +33,11 @@ def _score_question(
     parent_gold = set(question.gold_parent_ids)
     source_gold = set(question.gold_source_files)
     relevant_gold = child_gold or parent_gold
+    scored = bool(relevant_gold)
+    warnings: List[str] = []
+    scored_metrics: set[str] = set()
+    if not scored:
+        warnings.append("missing_primary_gold")
 
     row: Dict[str, Any] = {
         "question_id": question.question_id,
@@ -39,7 +45,11 @@ def _score_question(
         "question_type": question.question_type,
         "mrr": _reciprocal_rank(retrieved_chunks, child_gold, parent_gold),
         "first_relevant_rank": _first_relevant_rank(retrieved_chunks, child_gold, parent_gold),
+        "scored": scored,
+        "warnings": warnings,
     }
+    if scored:
+        scored_metrics.add("mrr")
 
     for k in k_values:
         top = list(retrieved_chunks[:k])
@@ -47,6 +57,9 @@ def _score_question(
         parent_hits = _hit_ids(top, "parent_id", parent_gold)
         source_hits = _hit_ids(top, "source_file", source_gold)
         relevant_hits = child_hits if child_gold else parent_hits
+        actual_results = len(top)
+        if actual_results < k:
+            warnings.append(f"insufficient_results@{k}")
 
         row[f"child_recall@{k}"] = _ratio(len(child_hits), len(child_gold))
         row[f"parent_recall@{k}"] = _ratio(len(parent_hits), len(parent_gold))
@@ -55,7 +68,25 @@ def _score_question(
         row[f"hitrate@{k}"] = 1.0 if relevant_hits else 0.0
         row[f"precision@{k}"] = len(relevant_hits) / k if k else 0.0
         row[f"ndcg@{k}"] = _ndcg(top, child_gold, parent_gold, source_gold, k)
+        row[f"actual_results@{k}"] = actual_results
+        scored_metrics.add(f"actual_results@{k}")
+        if child_gold:
+            scored_metrics.add(f"child_recall@{k}")
+        if parent_gold:
+            scored_metrics.add(f"parent_recall@{k}")
+        if source_gold:
+            scored_metrics.add(f"source_hitrate@{k}")
+        if scored:
+            scored_metrics.update(
+                {
+                    f"recall@{k}",
+                    f"hitrate@{k}",
+                    f"precision@{k}",
+                    f"ndcg@{k}",
+                }
+            )
 
+    row["_scored_metrics"] = sorted(scored_metrics)
     return row
 
 
@@ -71,9 +102,23 @@ def _aggregate(per_question: Sequence[Dict[str, Any]], k_values: Iterable[int]) 
                 f"parent_recall@{k}",
                 f"source_hitrate@{k}",
                 f"ndcg@{k}",
+                f"actual_results@{k}",
             ]
         )
-    return {metric: _mean(row.get(metric, 0.0) for row in per_question) for metric in metrics}
+    aggregate = {metric: _mean_metric(per_question, metric) for metric in metrics}
+    rows = len(per_question)
+    scored_rows = sum(1 for row in per_question if row.get("scored"))
+    warning_count = sum(len(row.get("warnings", [])) for row in per_question)
+    aggregate.update(
+        {
+            "rows": float(rows),
+            "scored_rows": float(scored_rows),
+            "unscored_rows": float(rows - scored_rows),
+            "warning_count": float(warning_count),
+            "evaluation_valid": 1.0 if rows > 0 and scored_rows > 0 else 0.0,
+        }
+    )
+    return aggregate
 
 
 def build_retrieval_error_cases(
@@ -199,3 +244,14 @@ def _ratio(numerator: int, denominator: int) -> float:
 def _mean(values: Iterable[float]) -> float:
     rows = list(values)
     return sum(rows) / len(rows) if rows else 0.0
+
+
+def _mean_metric(per_question: Sequence[Dict[str, Any]], metric: str) -> float:
+    values = []
+    for row in per_question:
+        if metric not in set(row.get("_scored_metrics", [])):
+            continue
+        value = row.get(metric)
+        if isinstance(value, (int, float)):
+            values.append(float(value))
+    return _mean(values)

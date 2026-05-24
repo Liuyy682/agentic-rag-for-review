@@ -12,6 +12,7 @@ if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
 from evaluation.io import write_jsonl
+from evaluation.ragbench_keys import document_id_from_sentence_key
 
 
 HF_ROWS_URL = "https://datasets-server.huggingface.co/rows"
@@ -128,7 +129,7 @@ def _get_with_retries(
 def to_eval_question(row: Dict[str, Any], subset: str, split: str) -> Dict[str, Any]:
     question_id = make_question_id(row, subset, split)
     relevant_sentence_keys = list(row.get("all_relevant_sentence_keys") or [])
-    relevant_doc_ids = sorted({key.split(" ")[0][0] for key in relevant_sentence_keys if key})
+    relevant_doc_ids = sorted({document_id_from_sentence_key(key) for key in relevant_sentence_keys if key})
     gold_parent_ids = [f"{question_id}_doc_{doc_id}" for doc_id in relevant_doc_ids]
     gold_child_ids = [f"{question_id}_sent_{key}" for key in relevant_sentence_keys]
     return {
