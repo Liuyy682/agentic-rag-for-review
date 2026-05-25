@@ -191,23 +191,12 @@ class ChatInterface:
         user_message  = message.strip()
         memory        = self._load_conversation_memory(session_id)
         config        = self.rag_system.get_config()
-        current_state = self.rag_system.agent_graph.get_state(config)
 
         try:
-            if current_state.next:
-                self.rag_system.agent_graph.update_state(
-                    config,
-                    {
-                        "messages": [HumanMessage(content=user_message)],
-                        "conversation_memory": memory,
-                    },
-                )
-                stream_input = None
-            else:
-                stream_input = {
-                    "messages": [HumanMessage(content=user_message)],
-                    "conversation_memory": memory,
-                }
+            stream_input = {
+                "messages": [HumanMessage(content=user_message)],
+                "conversation_memory": memory,
+            }
 
             response_messages  = []
             active_tool_calls  = {}

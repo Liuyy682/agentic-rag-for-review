@@ -29,6 +29,7 @@ class RAGSystem:
             temperature=config.LLM_TEMPERATURE,
             api_key=config.DEEPSEEK_API_KEY,
             base_url=config.DEEPSEEK_BASE_URL,
+            request_timeout=120,
         )
         self.tool_factory = ToolFactory(
             vector_db=self.vector_db,

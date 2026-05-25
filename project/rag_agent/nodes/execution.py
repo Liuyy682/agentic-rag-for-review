@@ -1,7 +1,11 @@
+import logging
+
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from ..graph_state import AgentState
 from ..prompts import get_fallback_response_prompt, get_knowledge_fallback_prompt, get_task_executor_prompt
+
+logger = logging.getLogger(__name__)
 
 
 def task_executor(state: AgentState, llm_with_tools):
@@ -17,10 +21,13 @@ def task_executor(state: AgentState, llm_with_tools):
         if task_context else []
     )
     if not state.get("messages"):
-        human_msg = HumanMessage(content=state["question"])
+        question = state["question"]
+        logger.info("Task executor: initial research for '%s'", question[:80])
+        human_msg = HumanMessage(content=question)
         force_search = HumanMessage(content="YOU MUST CALL `rag_research` before answering this task.")
         response = llm_with_tools.invoke([sys_msg] + summary_injection + task_context_injection + [human_msg, force_search])
         tool_calls = response.tool_calls or []
+        logger.info("Task executor: LLM returned %d tool calls", len(tool_calls))
         return {
             "messages": [human_msg, response],
             "tool_call_count": len(tool_calls),
@@ -28,8 +35,12 @@ def task_executor(state: AgentState, llm_with_tools):
             "iteration_count": 1,
         }
 
+    logger.info("Task executor: iteration %d, %d messages in context",
+                state.get("iteration_count", 0) + 1, len(state["messages"]))
     response = llm_with_tools.invoke([sys_msg] + summary_injection + task_context_injection + state["messages"])
     tool_calls = response.tool_calls if hasattr(response, "tool_calls") else []
+    logger.info("Task executor: LLM returned %d tool calls, answer length=%d",
+                len(tool_calls or []), len(response.content or ""))
     return {
         "messages": [response],
         "tool_call_count": len(tool_calls) if tool_calls else 0,
