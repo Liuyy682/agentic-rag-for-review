@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import json
 import math
@@ -9,8 +11,6 @@ from pathlib import Path
 from typing import Iterable
 
 import numpy as np
-import pandas as pd
-from sklearn.feature_extraction.text import TfidfVectorizer
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 if str(PROJECT_DIR) not in sys.path:
@@ -43,6 +43,8 @@ POLICY_VARIANT_CHILD_SIZE = 800
 POLICY_VARIANT_CHILD_OVERLAP = 160
 POLICY_VARIANT_PARENT_SIZE = 2000
 POLICY_VARIANT_PARENT_OVERLAP = 400
+T2_RETRIEVAL_REPO = "C-MTEB/T2Retrieval"
+T2_RETRIEVAL_QRELS_REPO = "C-MTEB/T2Retrieval-qrels"
 
 
 @dataclass(frozen=True)
@@ -79,9 +81,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--dataset",
-        choices=("ragbench", "dapr_conditionalqa"),
+        choices=("ragbench", "dapr_conditionalqa", "t2_retrieval"),
         default="ragbench",
-        help="Evaluation source. Use dapr_conditionalqa for UKPLab/dapr ConditionalQA.",
+        help=(
+            "Evaluation source. Use t2_retrieval for the Chinese C-MTEB T2Retrieval "
+            "benchmark, or dapr_conditionalqa for UKPLab/dapr ConditionalQA."
+        ),
     )
     parser.add_argument(
         "--source-contexts",
@@ -93,6 +98,7 @@ def main() -> None:
     )
     parser.add_argument("--output-dir", default="runtime/evaluation_reports/chunking_ablation")
     parser.add_argument("--limit", type=int, default=200)
+    parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--dense-top-k", type=int, default=50)
     parser.add_argument("--sparse-top-k", type=int, default=50)
     parser.add_argument("--k-values", default="1,3,5,10")
@@ -103,17 +109,29 @@ def main() -> None:
         default=120,
         help="For DAPR, index all selected-query gold docs plus this many deterministic distractor docs. Use 0 for all docs.",
     )
+    parser.add_argument(
+        "--t2-distractor-docs",
+        type=int,
+        default=120,
+        help="For T2Retrieval, index all selected-query gold docs plus this many deterministic distractor docs. Use 0 for all docs.",
+    )
     args = parser.parse_args()
 
     if args.dataset == "ragbench":
         rows = read_jsonl(args.source_contexts)[: args.limit]
         source_docs = build_source_docs(rows)
         dataset_label = args.source_contexts
-    else:
+    elif args.dataset == "dapr_conditionalqa":
         rows, source_docs = load_dapr_conditionalqa(args.limit, args.dapr_distractor_docs)
         dataset_label = (
             "UKPLab/dapr: ConditionalQA test, "
             f"gold docs + {args.dapr_distractor_docs or 'all'} distractor docs"
+        )
+    else:
+        rows, source_docs = load_t2_retrieval(args.limit, args.offset, args.t2_distractor_docs)
+        dataset_label = (
+            "C-MTEB/T2Retrieval dev, Mandarin Chinese retrieval, "
+            f"offset {args.offset}, gold docs + {args.t2_distractor_docs or 'all'} distractor docs"
         )
 
     k_values = sorted({int(item) for item in args.k_values.split(",") if item.strip()})
@@ -304,6 +322,110 @@ def load_dapr_conditionalqa(limit: int, distractor_docs: int) -> tuple[list[dict
     return rows, build_dapr_source_docs(corpus[corpus["doc_id"].isin(selected_doc_ids)])
 
 
+def load_t2_retrieval(limit: int, offset: int, distractor_docs: int) -> tuple[list[dict], list[SourceDoc]]:
+    corpus = read_hf_parquet_records(T2_RETRIEVAL_REPO, "corpus")
+    queries = read_hf_parquet_records(T2_RETRIEVAL_REPO, "queries")
+    qrels = read_hf_parquet_records(T2_RETRIEVAL_QRELS_REPO, "dev")
+    return build_t2_retrieval_rows(corpus, queries, qrels, limit, offset, distractor_docs)
+
+
+def build_t2_retrieval_rows(
+    corpus_records: list[dict],
+    query_records: list[dict],
+    qrel_records: list[dict],
+    limit: int,
+    offset: int,
+    distractor_docs: int,
+) -> tuple[list[dict], list[SourceDoc]]:
+    corpus_by_id = {
+        record_id(record): normalize_t2_corpus_text(record)
+        for record in corpus_records
+        if record_id(record)
+    }
+    query_by_id = {
+        record_id(record): str(record.get("text") or "").strip()
+        for record in query_records
+        if record_id(record) and str(record.get("text") or "").strip()
+    }
+    ordered_query_ids = [record_id(record) for record in query_records if record_id(record) in query_by_id]
+    qrels_by_query: dict[str, list[str]] = defaultdict(list)
+    for record in qrel_records:
+        if float(record.get("score", 0) or 0) <= 0:
+            continue
+        query_id = str(record.get("qid") or record.get("query-id") or record.get("query_id") or "").strip()
+        corpus_id = str(record.get("pid") or record.get("corpus-id") or record.get("corpus_id") or "").strip()
+        if query_id in query_by_id and corpus_id in corpus_by_id:
+            qrels_by_query[query_id].append(corpus_id)
+
+    selected_query_ids = []
+    skipped = 0
+    for query_id in ordered_query_ids:
+        if query_id not in qrels_by_query:
+            continue
+        if skipped < offset:
+            skipped += 1
+            continue
+        selected_query_ids.append(query_id)
+        if len(selected_query_ids) >= limit:
+            break
+
+    if len(selected_query_ids) < limit:
+        raise ValueError(f"Only found {len(selected_query_ids)} T2Retrieval queries with qrels, requested {limit}.")
+
+    rows = []
+    selected_gold_doc_ids = set()
+    for query_id in selected_query_ids:
+        gold_doc_ids = sorted(set(qrels_by_query[query_id]))
+        selected_gold_doc_ids.update(gold_doc_ids)
+        rows.append(
+            {
+                "question_id": f"t2_{query_id}",
+                "question": query_by_id[query_id],
+                "gold_sentence_keys": gold_doc_ids,
+                "gold_source_doc_ids": [f"t2_doc_{doc_id}" for doc_id in gold_doc_ids],
+            }
+        )
+
+    selected_doc_ids = select_t2_doc_ids(corpus_by_id, selected_gold_doc_ids, distractor_docs)
+    source_docs = [
+        SourceDoc(
+            doc_id=f"t2_doc_{doc_id}",
+            text=text,
+            sentence_keys=(doc_id,),
+            sentence_texts=(text,),
+        )
+        for doc_id, text in sorted(corpus_by_id.items())
+        if doc_id in selected_doc_ids and text
+    ]
+    return rows, source_docs
+
+
+def record_id(record: dict) -> str:
+    return str(record.get("_id") or record.get("id") or "").strip()
+
+
+def normalize_t2_corpus_text(record: dict) -> str:
+    title = str(record.get("title") or "").strip()
+    text = str(record.get("text") or "").strip()
+    if title and text:
+        return f"# {title}\n\n{text}"
+    return text or title
+
+
+def select_t2_doc_ids(corpus_by_id: dict[str, str], gold_doc_ids: set[str], distractor_docs: int) -> set[str]:
+    if distractor_docs <= 0:
+        return set(corpus_by_id)
+
+    selected = set(gold_doc_ids)
+    for doc_id in sorted(corpus_by_id):
+        if doc_id in selected:
+            continue
+        selected.add(doc_id)
+        if len(selected) >= len(gold_doc_ids) + distractor_docs:
+            break
+    return selected
+
+
 def select_dapr_doc_ids(corpus: pd.DataFrame, gold_doc_ids: set[str], distractor_docs: int) -> set[str]:
     if distractor_docs <= 0:
         return set(corpus["doc_id"].unique())
@@ -319,6 +441,7 @@ def select_dapr_doc_ids(corpus: pd.DataFrame, gold_doc_ids: set[str], distractor
 
 
 def read_hf_parquet(filename: str) -> pd.DataFrame:
+    import pandas as pd
     from huggingface_hub import hf_hub_download
 
     path = hf_hub_download(
@@ -328,6 +451,31 @@ def read_hf_parquet(filename: str) -> pd.DataFrame:
         cache_dir=getattr(config, "HF_CACHE_DIR", None),
     )
     return pd.read_parquet(path)
+
+
+def read_hf_parquet_records(repo_id: str, parquet_name_prefix: str) -> list[dict]:
+    import pandas as pd
+    from huggingface_hub import hf_hub_download, list_repo_files
+
+    filenames = [
+        filename
+        for filename in list_repo_files(repo_id=repo_id, repo_type="dataset")
+        if filename.endswith(".parquet") and Path(filename).name.startswith(parquet_name_prefix)
+    ]
+    if not filenames:
+        raise FileNotFoundError(f"No parquet file starting with {parquet_name_prefix!r} found in {repo_id}.")
+
+    frames = []
+    for filename in sorted(filenames):
+        path = hf_hub_download(
+            repo_id=repo_id,
+            filename=filename,
+            repo_type="dataset",
+            cache_dir=getattr(config, "HF_CACHE_DIR", None),
+        )
+        frames.append(pd.read_parquet(path))
+    frame = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+    return frame.to_dict("records")
 
 
 def build_dapr_source_docs(corpus: pd.DataFrame) -> list[SourceDoc]:
@@ -460,6 +608,8 @@ def evaluate_variant(
     sparse_top_k: int,
     k_values: list[int],
 ) -> tuple[dict[str, float], list[dict]]:
+    from sklearn.feature_extraction.text import TfidfVectorizer
+
     chunk_texts = [chunk.text for chunk in chunks]
     chunk_embeddings = model.encode_documents(chunk_texts, batch_size=64, show_progress_bar=True)
     vectorizer = TfidfVectorizer(ngram_range=(1, 2), lowercase=True)
@@ -716,6 +866,9 @@ def write_report(
         "# Chunking Ablation Report",
         "",
         f"- Dataset: `{dataset_label}`",
+        f"- dataset_key: `{args.dataset}`",
+        f"- dataset_language: `zh`" if args.dataset == "t2_retrieval" else "- dataset_language: `unknown_or_mixed`",
+        f"- evaluation_type: `{args.dataset}_chunking_ablation`",
         f"- Rows: {len(rows)}",
         f"- Source documents: {len(source_docs)}",
         f"- Retrieval: {config.DENSE_MODEL} dense + TF-IDF sparse, RRF fusion",

@@ -17,12 +17,20 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _env_int(name: str, default: int) -> int:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return int(value.strip())
+
+
 HF_CACHE_DIR = os.path.join(_BASE_DIR, ".cache", "huggingface")
-_DEFAULT_HF_HOME = os.path.expanduser("~/.cache/huggingface")
-if not os.path.exists(_DEFAULT_HF_HOME) or not os.access(_DEFAULT_HF_HOME, os.W_OK):
-    os.environ.setdefault("HF_HOME", HF_CACHE_DIR)
-    os.environ.setdefault("HF_HUB_CACHE", os.path.join(HF_CACHE_DIR, "hub"))
-    os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", os.path.join(HF_CACHE_DIR, "sentence-transformers"))
+HF_HOME = os.environ.get("HF_HOME", HF_CACHE_DIR)
+HF_HUB_CACHE = os.environ.get("HF_HUB_CACHE", HF_HOME)
+SENTENCE_TRANSFORMERS_HOME = os.environ.get("SENTENCE_TRANSFORMERS_HOME", HF_HOME)
+os.environ.setdefault("HF_HOME", HF_HOME)
+os.environ.setdefault("HF_HUB_CACHE", HF_HUB_CACHE)
+os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", SENTENCE_TRANSFORMERS_HOME)
 
 MARKDOWN_DIR = os.path.join(_RUNTIME_DIR, "markdown_docs")
 MARKDOWN_CLEANED_DIR = os.path.join(_RUNTIME_DIR, "markdown_docs_cleaned")
@@ -60,7 +68,7 @@ RETRIEVAL_PARENT_EXPAND_MIN_HITS = int(os.environ.get("RETRIEVAL_PARENT_EXPAND_M
 
 # --- Cross-Encoder Reranker Configuration ---
 RERANKER_ENABLED = True
-RERANKER_MODEL = "BAAI/bge-reranker-large"
+RERANKER_MODEL = "BAAI/bge-reranker-base"
 RERANKER_DEVICE = "auto"
 RERANKER_BATCH_SIZE = 8
 RERANKER_TOP_N = 40
@@ -70,8 +78,8 @@ RERANKER_SCORE_THRESHOLD = None
 RERANKER_LOCAL_FILES_ONLY = _env_bool("RERANKER_LOCAL_FILES_ONLY", _env_bool("HF_HUB_OFFLINE", False))
 
 # --- Model Configuration ---
-DENSE_MODEL = "BAAI/bge-large-zh-v1.5"
-DENSE_EMBEDDING_DIMENSION = 1024
+DENSE_MODEL = "BAAI/bge-base-zh-v1.5"
+DENSE_EMBEDDING_DIMENSION = 768
 DENSE_EMBEDDING_DEVICE = os.environ.get("DENSE_EMBEDDING_DEVICE", "auto")
 DENSE_EMBEDDING_BATCH_SIZE = int(os.environ.get("DENSE_EMBEDDING_BATCH_SIZE", "32"))
 DENSE_QUERY_INSTRUCTION = os.environ.get("DENSE_QUERY_INSTRUCTION", "为这个句子生成表示以用于检索相关文章：")
@@ -92,10 +100,10 @@ BASE_TOKEN_THRESHOLD = 2000
 TOKEN_GROWTH_FACTOR = 0.9
 
 # --- Text Splitter Configuration ---
-CHILD_CHUNK_SIZE = 500
-CHILD_CHUNK_OVERLAP = 100
-MIN_PARENT_SIZE = 2000
-MAX_PARENT_SIZE = 4000
+CHILD_CHUNK_SIZE = _env_int("CHILD_CHUNK_SIZE", 500)
+CHILD_CHUNK_OVERLAP = _env_int("CHILD_CHUNK_OVERLAP", 100)
+MIN_PARENT_SIZE = _env_int("MIN_PARENT_SIZE", 2000)
+MAX_PARENT_SIZE = _env_int("MAX_PARENT_SIZE", 4000)
 HEADERS_TO_SPLIT_ON = [
     ("#", "H1"),
     ("##", "H2"),

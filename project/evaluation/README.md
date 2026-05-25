@@ -71,6 +71,7 @@ RAGBench question + RAGBench documents
 
 注意：
 
+- 当前仓库里的 `project/evaluation/datasets/eval_questions.jsonl` 默认为空，不能直接用于效果结论；`eval_questions.sample.jsonl` 只是中文占位样例。
 - `eval_questions.jsonl` 必须包含真实 `gold_parent_ids` 或 `gold_child_ids`，否则该样本不会参与主检索指标均值。
 - 如果 reranker 最终返回数小于配置的 `top_k`，报告会写出 `actual_results@k` 和 `insufficient_results_for_k` warning。
 - `score_threshold` 在 `rrf`、`dense`、`sparse` 模式下目前不生效；报告会写 `score_threshold_ignored` warning。
@@ -115,6 +116,33 @@ RAGBench question + RAGBench documents
 它证明的是：在固定检索策略和固定数据下，不同 chunking/context policy 的相对差异。
 
 它不能证明：线上整体 RAG 质量，也不能把单一 subset 的收益泛化到所有任务。
+
+#### 中文 Hugging Face 检索基准
+
+如果本地 gold 集还没准备好，可以先用 Hugging Face 的中文检索基准 [`C-MTEB/T2Retrieval`](https://huggingface.co/datasets/C-MTEB/T2Retrieval) 和 [`C-MTEB/T2Retrieval-qrels`](https://huggingface.co/datasets/C-MTEB/T2Retrieval-qrels) 做分块消融：
+
+```bash
+.venv/bin/python project/evaluation/runners/chunking_ablation.py \
+  --dataset t2_retrieval \
+  --limit 100 \
+  --offset 0 \
+  --t2-distractor-docs 120 \
+  --variants single_300_60,single_500_100,single_800_160,pc_300_60_800_160,pc_500_100_2000_400,pc_800_160_2000_400,pc_adaptive \
+  --output-dir runtime/evaluation_reports/chunking_ablation_t2
+```
+
+这条链路使用 T2Retrieval 的 qrels 评估检索与分块策略，报告会标记 `dataset_language=zh` 和 `evaluation_type=t2_retrieval_chunking_ablation`。它不评估答案生成质量，也不替代你自己文档上的本地 gold 集。
+
+建议优先看：
+
+- `balanced_score`
+- `mrr`
+- `hitrate@5`
+- `doc_recall@5`
+- `sentence_recall@5`
+- `context_chars@5`
+
+如果两个方案 `balanced_score` 差距小于 `0.02`，优先选 `context_chars@5` 和 `index_chunks` 更小的方案。
 
 ## Validity And Warnings
 
@@ -196,6 +224,7 @@ RAGAS 汇总会记录每个指标的有效样本数：
 需要 `.venv` 中已安装：
 
 ```bash
+pyarrow
 ragas
 datasets
 openai
