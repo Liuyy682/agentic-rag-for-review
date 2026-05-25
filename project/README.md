@@ -41,10 +41,10 @@ The application will be available at `http://localhost:7860` (default Gradio por
 This system implements an advanced RAG pipeline with the following key features:
 
 - **Parent-Child Chunking**: Documents are split into small child chunks (for precise retrieval) linked to larger parent chunks (for rich context)
-- **Hybrid Search**: Combines dense embeddings and sparse (BM25) retrieval for optimal results
+- **Hybrid Search**: Combines dense pgvector search and PostgreSQL full-text retrieval with `jieba` tokenization
 - **LangGraph Agent**: Orchestrates query rewriting, retrieval, and response generation
 - **Multi-Provider Support**: Seamlessly switch between Ollama, OpenAI GPT, Google Gemini, and Anthropic Claude
-- **Vector Storage**: Uses Qdrant for efficient similarity search
+- **Storage**: Uses PostgreSQL + pgvector for child vectors, sparse fields, and parent chunks
 
 ### Data Flow
 
@@ -88,8 +88,9 @@ PDF → Markdown Conversion → Parent/Child Chunking → Vector Indexing → Ag
 
 | File | Purpose |
 |------|---------|
-| `project/storage/vector_store.py` | Qdrant client wrapper with embedding initialization |
-| `project/storage/parent_store.py` | File-backed storage for parent chunks |
+| `project/storage/postgres.py` | PostgreSQL connection pool and idempotent schema initialization |
+| `project/storage/pg_vector_store.py` | pgvector-backed child chunk indexing and retrieval |
+| `project/storage/pg_parent_store.py` | PostgreSQL parent chunk storage |
 | `project/retrieval/pipeline.py` | Retrieval orchestration and parent expansion |
 | `project/retrieval/fusion.py` | Reciprocal rank fusion utilities |
 | `project/retrieval/reranker.py` | Cross-encoder reranking |
@@ -123,25 +124,24 @@ All primary settings are in `project/config.py`. Key parameters:
 
 ```python
 MARKDOWN_DIR = "runtime/markdown_docs"        # Storage for converted Markdown files
-PARENT_STORE_PATH = "runtime/parent_store"    # File-backed storage for parent chunks
-QDRANT_DB_PATH = "runtime/qdrant_db"          # Local Qdrant vector database path
+INDEX_STATE_DIR = "runtime/index_state"       # JSON manifests and course state
 ```
 
-### Qdrant Configuration
+### PostgreSQL Configuration
 
 ```python
-CHILD_COLLECTION = "document_child_chunks"  # Collection name for child chunks
-SPARSE_VECTOR_NAME = "sparse"               # Named sparse vector field (BM25)
+DATABASE_URL = "postgresql://agentic_rag:dev_only@localhost:5432/agentic_rag"
+SPARSE_RETRIEVAL_BACKEND = "postgres_full_text_jieba"
 ```
 
 ### Model Configuration
 
 ```python
 # Default: single model configuration
-DENSE_MODEL = "BAAI/bge-large-zh-v1.5"
-DENSE_EMBEDDING_DIMENSION = 1024
-RERANKER_MODEL = "BAAI/bge-reranker-large"
-SPARSE_MODEL = "Qdrant/bm25"
+DENSE_MODEL = "BAAI/bge-base-zh-v1.5"
+DENSE_EMBEDDING_DIMENSION = 768
+RERANKER_MODEL = "BAAI/bge-reranker-base"
+SPARSE_RETRIEVAL_BACKEND = "postgres_full_text_jieba"
 LLM_MODEL = "qwen3:4b-instruct-2507-q4_K_M"
 LLM_TEMPERATURE = 0  # 0 = deterministic, 1 = creative
 ```
@@ -296,9 +296,6 @@ Replace the existing LLM initialization with:
 
 ```python
 def initialize(self):
-    self.vector_db.create_collection(self.collection_name)
-    collection = self.vector_db.get_collection(self.collection_name)
-    
     # Load active configuration
     active_config = config.LLM_CONFIGS[config.ACTIVE_LLM_CONFIG]
     model = active_config["model"]
@@ -324,7 +321,7 @@ def initialize(self):
         raise ValueError(f"Unsupported LLM provider: {config.ACTIVE_LLM_CONFIG}")
     
     # Continue with tool and graph initialization
-    tools = ToolFactory(collection).create_tools()
+    tools = ToolFactory(vector_db=self.vector_db, parent_store_manager=self.parent_store).create_tools()
     self.agent_graph = create_agent_graph(llm, tools)
 ```
 
@@ -357,15 +354,15 @@ ACTIVE_LLM_CONFIG = "google"  # Switch to Gemini Pro
 
 ```python
 # Current Chinese retrieval model
-DENSE_MODEL = "BAAI/bge-large-zh-v1.5"
-DENSE_EMBEDDING_DIMENSION = 1024
+DENSE_MODEL = "BAAI/bge-base-zh-v1.5"
+DENSE_EMBEDDING_DIMENSION = 768
 DENSE_QUERY_INSTRUCTION = "为这个句子生成表示以用于检索相关文章："
 DENSE_NORMALIZE_EMBEDDINGS = True
 
 # Current Chinese reranker
-RERANKER_MODEL = "BAAI/bge-reranker-large"
+RERANKER_MODEL = "BAAI/bge-reranker-base"
 
-SPARSE_MODEL = "Qdrant/bm25"
+SPARSE_RETRIEVAL_BACKEND = "postgres_full_text_jieba"
 ```
 
 If direct Hugging Face access is unstable, set the mirror before starting the app:
@@ -374,13 +371,9 @@ If direct Hugging Face access is unstable, set the mirror before starting the ap
 export HF_ENDPOINT=https://hf-mirror.com
 ```
 
-**Step 2:** Apply the migration and re-index your documents
+**Step 2:** Rebuild the PostgreSQL data volume and re-index your documents if the embedding dimension changes.
 
-```bash
-alembic upgrade head
-```
-
-⚠️ **Important:** `BAAI/bge-large-zh-v1.5` uses 1024-dimensional vectors. Migration `002` destructively recreates `parent_chunks` and `child_chunks`; after migration, use the Gradio UI to clear/re-index documents.
+The app creates tables automatically, but an existing `child_chunks.embedding` column must match `DENSE_EMBEDDING_DIMENSION`. If it does not, rebuild the database volume and upload documents again.
 
 **Popular Embedding Models:**
 
@@ -566,17 +559,9 @@ This pattern allows the agent to either request clarification from the user or f
 
 **Add Custom Tools:** Extend `tools.py` with new retrieval strategies or external integrations
 
-### Replacing Storage Backends
+### Storage Backend
 
-**Vector Database:**
-- Default: Local Qdrant
-- Alternatives: Remote Qdrant Cloud, Pinecone, Weaviate
-- Edit: `project/storage/vector_store.py`
-
-**Parent Store:**
-- Default: JSON file
-- Alternatives: PostgreSQL, MongoDB, S3
-- Edit: `project/storage/parent_store.py`
+The runtime storage backend is PostgreSQL + pgvector. Direct SQL access lives in `project/storage/postgres.py`, child chunk retrieval in `project/storage/pg_vector_store.py`, and parent chunk storage in `project/storage/pg_parent_store.py`.
 
 ### Extending the UI
 
@@ -632,6 +617,6 @@ Once running, open `http://localhost:7860`.
 | Slow response times | Large embedding model or high `top_k` value | Use a smaller embedding model (e.g., BAAI/bge-base-zh-v1.5) or reduce `top_k` in retrieval tools |
 | API rate limits exceeded | Too many requests to external provider | Add retry logic with exponential backoff or switch to local Ollama models |
 | Out of memory errors | Large document set or embedding model | Use smaller embeddings, reduce batch size, or enable GPU acceleration |
-| Empty retrieval results | Collection not indexed or wrong collection name | Verify documents are uploaded and `CHILD_COLLECTION` name matches in config |
+| Empty retrieval results | No documents indexed or PostgreSQL data was rebuilt | Upload documents again and confirm PostgreSQL is running |
 | Import errors after provider switch | Missing SDK installation | Install required package: `pip install langchain-{provider}` |
 | Inconsistent answers across runs | High temperature setting | Set `LLM_TEMPERATURE = 0` in config for deterministic responses |

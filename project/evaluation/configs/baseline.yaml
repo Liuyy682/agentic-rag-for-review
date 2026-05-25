@@ -1,6 +1,5 @@
 run_label: baseline
 dataset_version: eval_v1
-collection: document_child_chunks
 retrieval:
   mode: hybrid
   top_k: 10
@@ -11,6 +10,6 @@ chunking:
   min_parent_size: 2000
   max_parent_size: 4000
 models:
-  dense_model: BAAI/bge-large-zh-v1.5
-  sparse_model: Qdrant/bm25
+  dense_model: BAAI/bge-base-zh-v1.5
+  sparse_retrieval_backend: postgres_full_text_jieba
   llm_model: gpt-4o

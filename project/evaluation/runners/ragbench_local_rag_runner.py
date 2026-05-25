@@ -44,7 +44,6 @@ def run_ragbench_local_rag_eval(
     run_label: str,
     top_k: int,
     offset: int = 0,
-    collection_name: str = "ragbench_eval_child_chunks",
     skip_ragas: bool = False,
     ragas_timeout: int = 180,
     ragas_max_retries: int = 2,
@@ -80,17 +79,18 @@ def run_ragbench_local_rag_eval(
     rows = _read_jsonl(source_contexts_path)
     questions = [_context_row_to_eval_question(row, index + 1) for index, row in enumerate(rows)]
 
-    config.PARENT_STORE_PATH = str(run_dir / "parent_store")
-    parent_store_dir = Path(config.PARENT_STORE_PATH)
-    if parent_store_dir.exists():
-        shutil.rmtree(parent_store_dir)
+    config.INDEX_STATE_DIR = str(run_dir / "index_state")
+    state_dir = Path(config.INDEX_STATE_DIR)
+    config.COURSE_STRUCTURE_PATH = str(state_dir / "course_structure.json")
+    if state_dir.exists():
+        shutil.rmtree(state_dir)
     vector_db = PgVectorManager()
-    vector_db.delete_collection(collection_name)
-    vector_db.create_collection(collection_name)
-    collection = vector_db.get_collection(collection_name)
+    parent_store = PgParentStoreManager()
+    vector_db.clear_store()
+    parent_store.clear_store()
     ragbench_docs = _ragbench_documents(rows)
-    collection.add_documents(ragbench_docs)
-    PgParentStoreManager().save_many([
+    vector_db.add_documents(ragbench_docs)
+    parent_store.save_many([
         (str(doc.metadata["parent_id"]), doc)
         for doc in ragbench_docs
     ])
@@ -106,7 +106,7 @@ def run_ragbench_local_rag_eval(
     answer_generator = None
     if generate_answers:
         answer_generator = (
-            _AgentGraphAnswerGenerator(collection, vector_db, collection_name, resolved_answer_model)
+            _AgentGraphAnswerGenerator(vector_db, parent_store, resolved_answer_model)
             if use_agent_graph
             else _AnswerGenerator(resolved_answer_model)
         )
@@ -115,12 +115,10 @@ def run_ragbench_local_rag_eval(
         diagnostics = {}
         try:
             chunks = retrieve_chunks(
-                collection=collection,
                 query=question.question,
                 top_k=top_k,
                 score_threshold=None,
                 vector_db=vector_db,
-                collection_name=collection_name,
             )
         except Exception as exc:
             if not continue_on_error:
@@ -212,7 +210,6 @@ def run_ragbench_local_rag_eval(
             split=split,
             limit=limit,
             offset=offset,
-            collection_name=collection_name,
         )
     )
     metadata.update(
@@ -425,12 +422,11 @@ class _AnswerGenerator:
 
 
 class _AgentGraphAnswerGenerator:
-    def __init__(self, collection, vector_db: PgVectorManager, collection_name: str, model: str) -> None:
+    def __init__(self, vector_db: PgVectorManager, parent_store: PgParentStoreManager, model: str) -> None:
         llm = _create_eval_llm(model)
         tools = ToolFactory(
-            collection,
             vector_db=vector_db,
-            collection_name=collection_name,
+            parent_store_manager=parent_store,
         ).create_tools()
         self.agent_subgraph = create_agent_subgraph(llm, tools)
 
@@ -564,7 +560,9 @@ def _ragbench_documents(rows: List[Dict[str, Any]]) -> List[Document]:
                     metadata={
                         "chunk_id": f"{question_id}_doc_{index}",
                         "parent_id": f"{question_id}_doc_{index}",
+                        "doc_id": question_id,
                         "source": source_file,
+                        "source_file": source_file,
                     },
                 )
             )
@@ -604,7 +602,7 @@ def _append_jsonl(path: str | Path, row: Dict[str, Any]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate RAGBench through local Qdrant + RRF + reranker.")
+    parser = argparse.ArgumentParser(description="Evaluate RAGBench through PostgreSQL/pgvector + RRF + reranker.")
     parser.add_argument("--subset", default="covidqa")
     parser.add_argument("--split", default="test")
     parser.add_argument("--limit", type=int, default=20)
@@ -612,12 +610,11 @@ def main() -> None:
     parser.add_argument("--output-dir", default=config.EVALUATION_REPORTS_DIR)
     parser.add_argument("--run-label", default="ragbench_local_rag")
     parser.add_argument("--top-k", type=int, default=5)
-    parser.add_argument("--collection", default="ragbench_eval_child_chunks")
     parser.add_argument("--skip-ragas", action="store_true")
     parser.add_argument("--use-reference-answer", action="store_true", help="Use RAGBench reference answers instead of generated answers.")
     parser.add_argument("--use-agent-graph", action="store_true", help="Generate answers through the agent subgraph, including self-evaluation and retry retrieval.")
     parser.add_argument("--answer-model", default=None)
-    parser.add_argument("--ragas-input", help="Existing rag_outputs.jsonl to score without rebuilding Qdrant.")
+    parser.add_argument("--ragas-input", help="Existing rag_outputs.jsonl to score without rebuilding the PostgreSQL index.")
     parser.add_argument("--ragas-timeout", type=int, default=180)
     parser.add_argument("--ragas-max-retries", type=int, default=2)
     parser.add_argument("--ragas-max-workers", type=int, default=4)
@@ -664,7 +661,6 @@ def main() -> None:
         run_label=args.run_label,
         top_k=args.top_k,
         offset=args.offset,
-        collection_name=args.collection,
         skip_ragas=args.skip_ragas,
         ragas_timeout=args.ragas_timeout,
         ragas_max_retries=args.ragas_max_retries,

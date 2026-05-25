@@ -12,7 +12,7 @@ from rag_agent.tools import ToolFactory
 
 
 class FakeVectorDb:
-    def dense_search(self, collection_name, query, k):
+    def dense_search(self, query, k):
         return [
             Document(
                 page_content="child evidence",
@@ -22,7 +22,7 @@ class FakeVectorDb:
 
 
 class MultiSourceFakeVectorDb:
-    def dense_search(self, collection_name, query, k):
+    def dense_search(self, query, k):
         return [
             Document(
                 page_content="child evidence",
@@ -35,17 +35,17 @@ class MultiSourceFakeVectorDb:
         ]
 
 
-class FakeCollection:
-    pass
+class FakeParentStore:
+    def load_content_many(self, parent_ids):
+        return []
+
+    def load_content(self, parent_id):
+        return {}
 
 
 class TestRagResearchTool(unittest.TestCase):
     def setUp(self):
-        self.tool_factory = ToolFactory(
-            FakeCollection(),
-            vector_db=FakeVectorDb(),
-            collection_name="child_collection",
-        )
+        self.tool_factory = ToolFactory(vector_db=FakeVectorDb(), parent_store_manager=FakeParentStore())
 
     def test_create_tools_exposes_high_level_rag_tool(self):
         tools = self.tool_factory.create_tools()
@@ -77,9 +77,8 @@ class TestRagResearchTool(unittest.TestCase):
 
     def test_rag_research_respects_course_source_scope(self):
         self.tool_factory = ToolFactory(
-            FakeCollection(),
             vector_db=MultiSourceFakeVectorDb(),
-            collection_name="child_collection",
+            parent_store_manager=FakeParentStore(),
         )
         self.tool_factory.set_allowed_source_files(["source.pdf"])
         with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \

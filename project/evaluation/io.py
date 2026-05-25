@@ -74,7 +74,7 @@ def config_snapshot(
         "dense_embedding_dimension": config.DENSE_EMBEDDING_DIMENSION,
         "dense_query_instruction": config.DENSE_QUERY_INSTRUCTION,
         "dense_normalize_embeddings": config.DENSE_NORMALIZE_EMBEDDINGS,
-        "sparse_model": config.SPARSE_MODEL,
+        "sparse_retrieval_backend": config.SPARSE_RETRIEVAL_BACKEND,
         "retrieval_mode": "hybrid",
         "top_k": top_k,
         "score_threshold": score_threshold,

@@ -21,23 +21,23 @@ class FakeVectorDb:
     def __init__(self):
         self.calls = []
 
-    def dense_search(self, collection_name, query, k):
-        self.calls.append(("dense", collection_name, query, k))
+    def dense_search(self, query, k):
+        self.calls.append(("dense", query, k))
         return [make_doc(i) for i in range(5)]
 
 
-class FakeCollection:
-    pass
+class FakeParentStore:
+    def load_content_many(self, parent_ids):
+        return []
+
+    def load_content(self, parent_id):
+        return {}
 
 
 class TestRerankToolIntegration(unittest.TestCase):
     def setUp(self):
         self.vector_db = FakeVectorDb()
-        self.tool_factory = ToolFactory(
-            FakeCollection(),
-            vector_db=self.vector_db,
-            collection_name="child_collection",
-        )
+        self.tool_factory = ToolFactory(vector_db=self.vector_db, parent_store_manager=FakeParentStore())
 
     def test_search_child_chunks_does_not_rerank(self):
         with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \

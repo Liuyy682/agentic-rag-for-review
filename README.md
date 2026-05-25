@@ -1,20 +1,20 @@
 # agentic-rag-for-review
 
-Personal review version of an Agentic RAG system for course and document Q&A. The current codebase focuses on a local Gradio app backed by PostgreSQL + pgvector, LangGraph orchestration, hybrid retrieval, reranking, document ingestion, and evaluation scripts.
+这是一个面向课程资料和本地文档问答的 Agentic RAG 个人复盘版本。当前代码重点是本地 Gradio 应用、PostgreSQL + pgvector 存储、LangGraph 编排、混合检索、重排序、文档摄入和评测脚本。
 
-## What It Does
+## 项目能力
 
-- Upload local PDF, Markdown, Word, or PowerPoint files from the Gradio UI.
-- Convert documents to Markdown, clean repeated headers/footers, extract structure, and split content into parent and child chunks.
-- Store parent chunks, child chunks, metadata, dense vectors, and sparse search fields in PostgreSQL with pgvector.
-- Retrieve with dense search, PostgreSQL full-text sparse search, and reciprocal rank fusion.
-- Rerank candidates with a local cross-encoder when the model files are available.
-- Select answer context adaptively from child chunks, neighboring child chunks, or full parent chunks.
-- Run a LangGraph agent flow for intent recognition, query rewriting, clarification, task planning, retrieval, answer evaluation, fallback, and aggregation.
-- Scope chat to a course and maintain lightweight session memory.
-- Run RAGBench/RAGAS-oriented evaluation scripts under `project/evaluation`.
+- 在 Gradio UI 中上传本地 PDF、Markdown、Word 或 PowerPoint 文件。
+- 将文档转换为 Markdown，清理重复页眉页脚，抽取结构，并切分为父块和子块。
+- 使用 PostgreSQL + pgvector 存储父块、子块、元数据、稠密向量和稀疏检索字段。
+- 结合稠密向量检索、PostgreSQL 全文检索和 RRF 融合。
+- 在本地 cross-encoder 模型可用时，对候选结果进行重排序。
+- 根据问题类型自适应选择子块、邻近子块或完整父块作为回答上下文。
+- 使用 LangGraph 编排意图识别、查询改写、澄清、任务规划、检索、答案评估、降级回答和聚合。
+- 支持按课程范围对话，并维护轻量会话记忆。
+- 在 `project/evaluation` 下提供 RAGBench/RAGAS 相关评测脚本。
 
-## Architecture
+## 架构
 
 ```text
 Gradio UI
@@ -26,34 +26,34 @@ Gradio UI
 -> PostgreSQL + pgvector
 ```
 
-Main code paths:
+主要代码路径：
 
-- `project/app.py` starts the Gradio app.
-- `project/application/rag_application.py` wires the RAG system, document manager, and chat interface.
-- `project/core/rag_system.py` initializes PostgreSQL storage, the DeepSeek/OpenAI-compatible chat model, LangGraph, and tools.
-- `project/ingestion/` handles conversion, cleaning, chunking, integrity checks, manifests, image extraction, and course structure.
-- `project/storage/` contains pgvector-backed child chunk search and parent chunk storage.
-- `project/retrieval/` contains RRF fusion, reranking, and adaptive context selection.
-- `project/rag_agent/` contains graph state, prompts, tools, nodes, and routing logic.
-- `project/evaluation/` contains RAGBench import/evaluation runners and reporting utilities.
+- `project/app.py` 启动 Gradio 应用。
+- `project/application/rag_application.py` 组装 RAG 系统、文档管理器和聊天接口。
+- `project/core/rag_system.py` 初始化 PostgreSQL 存储、DeepSeek/OpenAI-compatible 聊天模型、LangGraph 和工具。
+- `project/ingestion/` 负责转换、清洗、切分、完整性检查、索引清单、图片提取和课程结构。
+- `project/storage/` 提供基于 pgvector 的子块检索和父块存储。
+- `project/retrieval/` 提供 RRF 融合、重排序和自适应上下文选择。
+- `project/rag_agent/` 包含图状态、提示词、工具、节点和路由逻辑。
+- `project/evaluation/` 包含 RAGBench 导入、评测运行器和报告工具。
 
-## Tech Stack
+## 技术栈
 
 - Python 3.11+
 - Gradio
 - LangGraph / LangChain
-- DeepSeek or another OpenAI-compatible chat API through `ChatOpenAI`
-- PostgreSQL 17 with pgvector
-- SQLAlchemy and Alembic
+- DeepSeek 或其他 OpenAI-compatible 聊天 API，通过 `ChatOpenAI` 接入
+- PostgreSQL 17 + pgvector
+- 通过 `psycopg2` 直连 PostgreSQL
 - HuggingFace sentence-transformer embeddings
-- PostgreSQL full-text search with `jieba` tokenization
-- Cross-encoder reranking via `sentence-transformers`
-- MarkItDown, PyMuPDF, and related document conversion tools
-- Optional Langfuse tracing
+- PostgreSQL 全文检索，结合 `jieba` 分词
+- 基于 `sentence-transformers` 的 cross-encoder 重排序
+- MarkItDown、PyMuPDF 等文档转换工具
+- 可选 Langfuse 链路追踪
 
-## Setup
+## 安装
 
-Create a virtual environment and install dependencies:
+创建虚拟环境并安装依赖：
 
 ```bash
 python -m venv .venv
@@ -61,79 +61,75 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Create a root `.env` file:
+创建根目录 `.env`：
 
 ```bash
 cp .env.example .env
 ```
 
-Set at least:
+至少配置：
 
 ```env
 DEEPSEEK_API_KEY=your_deepseek_api_key
 DEEPSEEK_MODEL=deepseek-chat
 ```
 
-Optional project-level settings for Hugging Face mirrors, Langfuse, and multimodal ingestion are documented in `project/.env.example`.
+Hugging Face 镜像、Langfuse 和多模态摄入的可选配置见 `project/.env.example`。
 
-## Database
+## 数据库
 
-Start PostgreSQL with pgvector:
+启动带 pgvector 的 PostgreSQL：
 
 ```bash
 docker compose up -d postgres
 ```
 
-Apply the schema migration:
+应用启动时会自动初始化最小运行时 schema，包括 `vector` extension、`parent_chunks` 和 `child_chunks`。
 
-```bash
-alembic upgrade head
-```
+当前默认检索栈使用 `BAAI/bge-base-zh-v1.5` embedding 和 `BAAI/bge-reranker-base`。如果 Hugging Face 直连不稳定，启动应用前设置 `HF_ENDPOINT=https://hf-mirror.com`。如果修改 `DENSE_EMBEDDING_DIMENSION`，需要重建 PostgreSQL 数据卷并重新索引文档。
 
-The current default retrieval stack uses `BAAI/bge-large-zh-v1.5` embeddings and `BAAI/bge-reranker-large`. Migration `002` recreates `parent_chunks` and `child_chunks` for 1024-dimensional embeddings, so re-index documents after upgrading. If Hugging Face direct access is unstable, set `HF_ENDPOINT=https://hf-mirror.com` before starting the app.
-
-The default database URL is:
+默认数据库地址为：
 
 ```text
 postgresql://agentic_rag:dev_only@localhost:5432/agentic_rag
 ```
 
-You can override it with `DATABASE_URL`.
+也可以通过 `DATABASE_URL` 覆盖。
 
-## Run
+## 运行
 
 ```bash
 python project/app.py
 ```
 
-The UI has two main tabs:
+UI 主要包含两个页面：
 
-- `Documents`: upload files, bind them to courses, inspect indexed documents, rename courses or sections, and clear the knowledge base.
-- `Chat`: ask questions against all indexed documents or a selected course scope.
+- `Documents`：上传文件、绑定课程、查看已索引文档、重命名课程或章节、清空知识库。
+- `Chat`：基于全部已索引文档或指定课程范围提问。
 
-Runtime outputs are written under `runtime/`, including converted Markdown, cleaned Markdown, ingestion logs, image extracts, course structure, session memory, and evaluation reports.
+运行时产物会写入 `runtime/`，包括转换后的 Markdown、清洗后的 Markdown、摄入日志、图片提取结果、课程结构、会话记忆和评测报告。
 
-## Retrieval Behavior
+## 检索行为
 
-The default retrieval mode is `rrf`:
+默认检索模式是 `rrf`：
 
 ```text
-dense vector search + sparse full-text search -> reciprocal rank fusion -> rerank -> context selection
+稠密向量检索 + 稀疏全文检索 -> RRF 融合 -> 重排序 -> 上下文选择
 ```
 
-Context selection is controlled by:
+上下文选择由以下配置控制：
 
-- `RETRIEVAL_CONTEXT_POLICY`: `adaptive`, `child`, `neighbor`, or `parent`
+- `RETRIEVAL_CONTEXT_POLICY`：`adaptive`、`child`、`neighbor` 或 `parent`
 - `RETRIEVAL_NEIGHBOR_WINDOW`
 - `RETRIEVAL_PARENT_EXPAND_MIN_HITS`
 
-In adaptive mode, broad explanatory queries prefer parent context, fact-style queries can stay closer to child chunks, and repeated hits within the same parent can expand to neighboring child chunks.
+在自适应模式下，解释型问题倾向使用父块上下文，事实型问题可以保留更小的子块上下文，同一父块命中较多时会扩展到邻近子块。
 
-## Evaluation
+## 评测
 
-Evaluation utilities live under `project/evaluation`. The RAGBench/RAGAS runner can generate answers, score them, and write outputs under `runtime/evaluation_reports`.
+评测工具位于 `project/evaluation`。RAGBench/RAGAS runner 可以生成回答、评分，并把结果写入 `runtime/evaluation_reports`。
 
-Example:
+示例：
 
 ```bash
 python project/evaluation/runners/ragbench_eval_runner.py \
@@ -145,9 +141,4 @@ python project/evaluation/runners/ragbench_eval_runner.py \
   --ragas-batch-size 1
 ```
 
-See `project/evaluation/README.md` for evaluation-specific details.
-
-## Notes
-
-- The repository intentionally ignores local runtime data, local documents, notebooks, internal task notes, and local agent configuration.
-- If a path is already tracked by Git, adding it to `.gitignore` does not remove it from GitHub. It must also be removed from the Git index with `git rm --cached`.
+评测细节见 `project/evaluation/README.md`。

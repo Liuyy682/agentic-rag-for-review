@@ -12,11 +12,20 @@ from retrieval.pipeline import RetrievalPipeline
 
 
 class FakeVectorDb:
-    def __init__(self, docs):
+    def __init__(self, docs, neighbors=None, recorder=None):
         self.docs = docs
+        self.neighbors = neighbors or []
+        self.recorder = recorder
 
-    def dense_search(self, collection_name, query, k):
+    def dense_search(self, query, k):
         return self.docs[:k]
+
+    def load_child_neighbors(self, anchors, window=1):
+        if self.recorder:
+            self.recorder.neighbor_calls += 1
+            self.recorder.last_anchors = list(anchors)
+            self.recorder.last_window = window
+        return list(self.neighbors)
 
 
 class RecordingParentStore:
@@ -33,12 +42,6 @@ class RecordingParentStore:
         self.parent_calls += 1
         self.last_parent_ids = list(parent_ids)
         return [self.parents[parent_id] for parent_id in parent_ids if parent_id in self.parents]
-
-    def load_child_neighbors(self, anchors, window=1):
-        self.neighbor_calls += 1
-        self.last_anchors = list(anchors)
-        self.last_window = window
-        return list(self.neighbors)
 
 
 def child_doc(
@@ -85,9 +88,7 @@ def neighbor_row(content, chunk_id, parent_id="parent_1", chunk_index=1, source=
 class TestRetrievalContextPolicy(unittest.TestCase):
     def run_pipeline(self, docs, parent_store, query="query", keep_parent_ids=None):
         pipeline = RetrievalPipeline(
-            collection=object(),
-            vector_db=FakeVectorDb(docs),
-            collection_name="child_collection",
+            vector_db=FakeVectorDb(docs, neighbors=parent_store.neighbors, recorder=parent_store),
             parent_store_manager=parent_store,
         )
         with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \
@@ -214,9 +215,11 @@ class TestRetrievalContextPolicy(unittest.TestCase):
             ]
         )
         pipeline = RetrievalPipeline(
-            collection=object(),
-            vector_db=FakeVectorDb([child_doc(content="allowed hit", chunk_id="child_3", chunk_index=3)]),
-            collection_name="child_collection",
+            vector_db=FakeVectorDb(
+                [child_doc(content="allowed hit", chunk_id="child_3", chunk_index=3)],
+                neighbors=store.neighbors,
+                recorder=store,
+            ),
             parent_store_manager=store,
         )
         pipeline.set_allowed_source_files(["source.pdf"])

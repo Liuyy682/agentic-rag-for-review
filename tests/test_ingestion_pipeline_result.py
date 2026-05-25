@@ -11,7 +11,6 @@ import config
 from ingestion.document_manager import DocumentManager
 from ingestion.index_manifest import IndexManifest
 from ingestion.chunking import DocumentChunker
-from storage.pg_parent_store import PgParentStoreManager
 
 
 class FakeCollection:
@@ -29,28 +28,46 @@ class FakeVectorDb:
         self.collection = FakeCollection()
         self.deleted_source_files = []
 
-    def get_collection(self, collection_name):
-        return self.collection
+    def add_documents(self, documents):
+        return self.collection.add_documents(documents)
 
-    def delete_by_source_file(self, collection_name, source_file):
+    def delete_by_source_file(self, source_file):
         self.deleted_source_files.append(source_file)
         self.collection.documents = [
             doc for doc in self.collection.documents
             if doc.metadata.get("source_file") != source_file
         ]
 
-    def delete_collection(self, collection_name):
+    def clear_store(self):
         self.collection.documents = []
 
-    def create_collection(self, collection_name):
-        pass
+
+class FakeParentStore:
+    def __init__(self):
+        self.saved = []
+        self.deleted_source_files = []
+        self.cleared = False
+
+    def save_many(self, parents):
+        self.saved.extend(parents)
+
+    def delete_by_source_file(self, source_file):
+        self.deleted_source_files.append(source_file)
+        self.saved = [
+            (parent_id, doc)
+            for parent_id, doc in self.saved
+            if doc.metadata.get("source_file") != source_file
+        ]
+
+    def clear_store(self):
+        self.cleared = True
+        self.saved = []
 
 
 class FakeRagSystem:
-    def __init__(self, parent_store_path):
-        self.collection_name = "test_collection"
+    def __init__(self, state_dir=None):
         self.vector_db = FakeVectorDb()
-        self.parent_store = PgParentStoreManager()
+        self.parent_store = FakeParentStore()
         self.chunker = DocumentChunker()
 
 
@@ -69,7 +86,7 @@ class ConfigPatch:
             setattr(config, name, value)
 
 
-def test_config(temp_path: Path) -> dict:
+def build_test_config(temp_path: Path) -> dict:
     return {
         "MARKDOWN_DIR": str(temp_path / "markdown"),
         "MARKDOWN_CLEANED_DIR": str(temp_path / "cleaned"),
@@ -77,7 +94,7 @@ def test_config(temp_path: Path) -> dict:
         "MARKDOWN_CLEANING_DIFF_DIR": str(temp_path / "diffs"),
         "DOCUMENT_IMAGE_DIR": str(temp_path / "images"),
         "INGESTION_LOG_DIR": str(temp_path / "ingestion_logs"),
-        "PARENT_STORE_PATH": str(temp_path / "parents"),
+        "INDEX_STATE_DIR": str(temp_path / "index_state"),
         "COURSE_STRUCTURE_PATH": str(temp_path / "course_structure.json"),
         "MARKDOWN_CLEANING_ENABLED": False,
         "INGESTION_SKIP_UNCHANGED_FILES": True,
@@ -93,10 +110,10 @@ class TestIngestionPipelineResult(unittest.TestCase):
     def test_unchanged_same_source_skips_conversion_but_updates_new_course(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            with ConfigPatch(**test_config(temp_path)):
+            with ConfigPatch(**build_test_config(temp_path)):
                 source = temp_path / "notes.md"
                 source.write_text("# Notes\n\nBody", encoding="utf-8")
-                rag_system = FakeRagSystem(config.PARENT_STORE_PATH)
+                rag_system = FakeRagSystem(config.INDEX_STATE_DIR)
                 manager = DocumentManager(rag_system)
 
                 first = manager.add_documents_detailed([str(source)], course_names="Course A")
@@ -137,12 +154,12 @@ class TestIngestionPipelineResult(unittest.TestCase):
     def test_same_hash_different_source_files_are_indexed_separately(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            with ConfigPatch(**test_config(temp_path)):
+            with ConfigPatch(**build_test_config(temp_path)):
                 first = temp_path / "first.md"
                 second = temp_path / "second.md"
                 first.write_text("# Same\n\nBody", encoding="utf-8")
                 second.write_text("# Same\n\nBody", encoding="utf-8")
-                manager = DocumentManager(FakeRagSystem(config.PARENT_STORE_PATH))
+                manager = DocumentManager(FakeRagSystem(config.INDEX_STATE_DIR))
 
                 summary = manager.add_documents_detailed([str(first), str(second)])
 
@@ -158,10 +175,10 @@ class TestIngestionPipelineResult(unittest.TestCase):
     def test_unsupported_document_returns_failed_result(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            with ConfigPatch(**test_config(temp_path)):
+            with ConfigPatch(**build_test_config(temp_path)):
                 source = temp_path / "archive.zip"
                 source.write_bytes(b"fake")
-                manager = DocumentManager(FakeRagSystem(config.PARENT_STORE_PATH))
+                manager = DocumentManager(FakeRagSystem(config.INDEX_STATE_DIR))
 
                 summary = manager.add_documents_detailed([str(source)])
 
@@ -175,10 +192,10 @@ class TestIngestionPipelineResult(unittest.TestCase):
     def test_delete_document_removes_index_artifacts_and_course_binding(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            with ConfigPatch(**test_config(temp_path)):
+            with ConfigPatch(**build_test_config(temp_path)):
                 source = temp_path / "notes.md"
                 source.write_text("# Notes\n\nBody", encoding="utf-8")
-                rag_system = FakeRagSystem(config.PARENT_STORE_PATH)
+                rag_system = FakeRagSystem(config.INDEX_STATE_DIR)
                 manager = DocumentManager(rag_system)
                 manager.add_documents_detailed([str(source)], course_names="Course A")
 
@@ -199,12 +216,7 @@ class TestIngestionPipelineResult(unittest.TestCase):
                 self.assertTrue(result.cleaning_outputs_deleted)
                 self.assertTrue(result.course_updated)
                 self.assertEqual(rag_system.vector_db.collection.documents, [])
-                parent_files = [
-                    path.name
-                    for path in Path(config.PARENT_STORE_PATH).glob("*.json")
-                    if path.name != "index_manifest.json"
-                ]
-                self.assertEqual(parent_files, [])
+                self.assertEqual(rag_system.parent_store.deleted_source_files, ["notes.md", "notes.md"])
                 self.assertIsNone(IndexManifest().get_document("notes.md"))
                 self.assertFalse((Path(config.MARKDOWN_DIR) / "notes.md").exists())
                 self.assertFalse(cleaned.exists())

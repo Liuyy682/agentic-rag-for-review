@@ -7,6 +7,7 @@ from langchain_core.documents import Document
 
 import config
 from storage.pg_parent_store import PgParentStoreManager
+from storage.pg_vector_store import PgVectorManager
 from retrieval.reranker import RerankerUnavailable, get_reranker
 
 logger = logging.getLogger(__name__)
@@ -26,10 +27,8 @@ FACT_QUERY_MARKERS = {
 
 
 class RetrievalPipeline:
-    def __init__(self, collection, vector_db=None, collection_name=None, parent_store_manager=None):
-        self.collection = collection
-        self.vector_db = vector_db
-        self.collection_name = collection_name
+    def __init__(self, vector_db=None, parent_store_manager=None):
+        self.vector_db = vector_db or PgVectorManager()
         self.parent_store_manager = parent_store_manager or PgParentStoreManager()
         self.allowed_source_files: set[str] = set()
 
@@ -77,10 +76,9 @@ class RetrievalPipeline:
         mode = config.RETRIEVAL_FUSION_MODE
 
         if mode == "rrf":
-            if not self.vector_db or not self.collection_name:
-                raise ValueError("RRF retrieval requires vector_db and collection_name")
+            if not self.vector_db:
+                raise ValueError("RRF retrieval requires vector_db")
             results = self.vector_db.rrf_search(
-                collection_name=self.collection_name,
                 query=query,
                 dense_k=config.DENSE_TOP_K,
                 sparse_k=config.SPARSE_TOP_K,
@@ -88,13 +86,13 @@ class RetrievalPipeline:
                 rrf_k=config.RRF_K,
             )
         elif mode == "dense":
-            if not self.vector_db or not self.collection_name:
-                raise ValueError("Dense retrieval requires vector_db and collection_name")
-            results = self.vector_db.dense_search(self.collection_name, query, k=retrieval_limit)
+            if not self.vector_db:
+                raise ValueError("Dense retrieval requires vector_db")
+            results = self.vector_db.dense_search(query, k=retrieval_limit)
         elif mode == "sparse":
-            if not self.vector_db or not self.collection_name:
-                raise ValueError("Sparse retrieval requires vector_db and collection_name")
-            results = self.vector_db.sparse_search(self.collection_name, query, k=retrieval_limit)
+            if not self.vector_db:
+                raise ValueError("Sparse retrieval requires vector_db")
+            results = self.vector_db.sparse_search(query, k=retrieval_limit)
         else:
             raise ValueError(f"Unsupported retrieval fusion mode: {mode}")
 
@@ -194,7 +192,7 @@ class RetrievalPipeline:
                 score_by_parent[parent_id] = max(current, child_context["score"]) if current is not None else child_context["score"]
 
         try:
-            raw_neighbors = self.parent_store_manager.load_child_neighbors(anchors, window=window)
+            raw_neighbors = self.vector_db.load_child_neighbors(anchors, window=window)
         except Exception:
             logger.exception("Child neighbor retrieval failed during rag_research")
             raw_neighbors = []

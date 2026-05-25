@@ -14,16 +14,16 @@ class FakeVectorDb:
     def __init__(self):
         self.calls = []
 
-    def dense_search(self, collection_name, query, k):
-        self.calls.append(("dense", collection_name, query, k))
+    def dense_search(self, query, k):
+        self.calls.append(("dense", query, k))
         return [self._doc("dense_child")]
 
-    def sparse_search(self, collection_name, query, k):
-        self.calls.append(("sparse", collection_name, query, k))
+    def sparse_search(self, query, k):
+        self.calls.append(("sparse", query, k))
         return [self._doc("sparse_child")]
 
-    def rrf_search(self, collection_name, query, dense_k, sparse_k, fused_k, rrf_k):
-        self.calls.append(("rrf", collection_name, query, dense_k, sparse_k, fused_k, rrf_k))
+    def rrf_search(self, query, dense_k, sparse_k, fused_k, rrf_k):
+        self.calls.append(("rrf", query, dense_k, sparse_k, fused_k, rrf_k))
         result = self._doc("rrf_child")
         result.metadata["rrf_score"] = 0.032
         result.metadata["rrf_rank_details"] = {"rank_0": 1, "rank_1": 2}
@@ -37,18 +37,18 @@ class FakeVectorDb:
         )
 
 
-class FakeCollection:
-    pass
+class FakeParentStore:
+    def load_content_many(self, parent_ids):
+        return []
+
+    def load_content(self, parent_id):
+        return {}
 
 
 class TestRrfRetrievalTool(unittest.TestCase):
     def setUp(self):
         self.vector_db = FakeVectorDb()
-        self.tool_factory = ToolFactory(
-            FakeCollection(),
-            vector_db=self.vector_db,
-            collection_name="child_collection",
-        )
+        self.tool_factory = ToolFactory(vector_db=self.vector_db, parent_store_manager=FakeParentStore())
 
     def test_dense_mode_returns_compatible_output(self):
         with patch("config.RETRIEVAL_FUSION_MODE", "dense"):

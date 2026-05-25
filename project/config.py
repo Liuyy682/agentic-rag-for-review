@@ -38,10 +38,10 @@ MARKDOWN_CLEANING_LOG_DIR = os.path.join(_RUNTIME_DIR, "markdown_cleaning_logs")
 MARKDOWN_CLEANING_DIFF_DIR = os.path.join(_RUNTIME_DIR, "markdown_cleaning_diffs")
 DOCUMENT_IMAGE_DIR = os.path.join(_RUNTIME_DIR, "document_images")
 INGESTION_LOG_DIR = os.path.join(_RUNTIME_DIR, "ingestion_logs")
-PARENT_STORE_PATH = os.path.join(_RUNTIME_DIR, "parent_store")
+INDEX_STATE_DIR = os.path.join(_RUNTIME_DIR, "index_state")
 
 EVALUATION_REPORTS_DIR = os.path.join(_RUNTIME_DIR, "evaluation_reports")
-COURSE_STRUCTURE_PATH = os.path.join(_RUNTIME_DIR, "course_structure.json")
+COURSE_STRUCTURE_PATH = os.path.join(INDEX_STATE_DIR, "course_structure.json")
 SESSION_MEMORY_PATH = os.path.join(_RUNTIME_DIR, "session_memory.sqlite3")
 
 # --- Database Configuration ---
@@ -49,10 +49,6 @@ DATABASE_URL = os.environ.get(
     "DATABASE_URL",
     "postgresql://agentic_rag:dev_only@localhost:5432/agentic_rag",
 )
-
-# --- Qdrant Configuration ---
-CHILD_COLLECTION = "document_child_chunks"
-SPARSE_VECTOR_NAME = "sparse"
 
 # --- Retrieval Fusion Configuration ---
 RETRIEVAL_FUSION_MODE = "rrf"
@@ -85,7 +81,7 @@ DENSE_EMBEDDING_BATCH_SIZE = int(os.environ.get("DENSE_EMBEDDING_BATCH_SIZE", "3
 DENSE_QUERY_INSTRUCTION = os.environ.get("DENSE_QUERY_INSTRUCTION", "为这个句子生成表示以用于检索相关文章：")
 DENSE_NORMALIZE_EMBEDDINGS = _env_bool("DENSE_NORMALIZE_EMBEDDINGS", True)
 DENSE_LOCAL_FILES_ONLY = _env_bool("DENSE_LOCAL_FILES_ONLY", _env_bool("HF_HUB_OFFLINE", False))
-SPARSE_MODEL = "Qdrant/bm25"
+SPARSE_RETRIEVAL_BACKEND = "postgres_full_text_jieba"
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 LLM_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")

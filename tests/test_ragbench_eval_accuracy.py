@@ -46,7 +46,6 @@ class TestRagbenchEvaluationAccuracy(unittest.TestCase):
             split="test",
             limit=3,
             offset=0,
-            collection_name="eval_child",
         )
 
         self.assertEqual(metadata["evaluation_type"], "synthetic_ragbench_document_retrieval")

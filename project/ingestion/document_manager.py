@@ -129,7 +129,7 @@ class DocumentManager:
         document = self.manifest.get_document(source_file)
 
         try:
-            self.rag_system.vector_db.delete_by_source_file(self.rag_system.collection_name, source_file)
+            self.rag_system.vector_db.delete_by_source_file(source_file)
             result.vector_deleted = True
         except Exception as exc:
             result.errors.append(f"vector delete failed: {exc}")
@@ -327,15 +327,14 @@ class DocumentManager:
 
     def _delete_old_index(self, source_file: str, result: DocumentIngestionResult) -> None:
         def delete_old():
-            self.rag_system.vector_db.delete_by_source_file(self.rag_system.collection_name, source_file)
+            self.rag_system.vector_db.delete_by_source_file(source_file)
             self.rag_system.parent_store.delete_by_source_file(source_file)
 
         self._run_stage(result, "delete_old", delete_old, details={"source_file": source_file})
 
     def _write_vector_chunks(self, child_chunks: list, result: DocumentIngestionResult) -> None:
         def write_vectors():
-            collection = self.rag_system.vector_db.get_collection(self.rag_system.collection_name)
-            collection.add_documents(child_chunks)
+            self.rag_system.vector_db.add_documents(child_chunks)
 
         self._run_stage(result, "write_vector", write_vectors, details={"child_count": len(child_chunks)})
 
@@ -595,8 +594,7 @@ class DocumentManager:
         clear_directory_contents(Path(config.INGESTION_LOG_DIR))
 
         self.rag_system.parent_store.clear_store()
-        self.rag_system.vector_db.delete_collection(self.rag_system.collection_name)
-        self.rag_system.vector_db.create_collection(self.rag_system.collection_name)
+        self.rag_system.vector_db.clear_store()
         self.manifest = IndexManifest()
         self.manifest.save()
         self.course_store.clear()

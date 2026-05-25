@@ -26,7 +26,6 @@ def run_retrieval_eval(
     output_dir: str,
     run_label: str,
     top_k: int,
-    collection_name: str,
     dataset_version: str,
     score_threshold: float | None,
 ) -> Dict[str, Any]:
@@ -38,20 +37,16 @@ def run_retrieval_eval(
     reports_dir.mkdir(parents=True, exist_ok=True)
 
     vector_db = PgVectorManager()
-    vector_db.create_collection(collection_name)
-    collection = vector_db.get_collection(collection_name)
 
     results = [
         {
             "question_id": item.question_id,
             "query": item.question,
             "retrieved_chunks": retrieve_chunks(
-                collection,
-                item.question,
-                top_k,
-                score_threshold,
+                query=item.question,
+                top_k=top_k,
+                score_threshold=score_threshold,
                 vector_db=vector_db,
-                collection_name=collection_name,
             ),
         }
         for item in questions
@@ -115,25 +110,28 @@ def run_retrieval_eval(
 
 
 def retrieve_chunks(
-    collection: Any,
     query: str,
     top_k: int,
     score_threshold: float | None = None,
     vector_db: PgVectorManager | None = None,
-    collection_name: str | None = None,
 ) -> List[Dict[str, Any]]:
     candidate_k = top_k
     if config.RERANKER_ENABLED:
         candidate_k = max(candidate_k, config.RERANKER_TOP_N)
 
     docs_with_scores = _retrieve_candidate_docs(
-        collection=collection,
         query=query,
         candidate_k=candidate_k,
         score_threshold=score_threshold,
         vector_db=vector_db,
-        collection_name=collection_name,
     )
+    if score_threshold is not None:
+        docs_with_scores = [
+            (doc, score)
+            for doc, score in docs_with_scores
+            if _float_or_none((doc.metadata or {}).get("score")) is None
+            or _float_or_none((doc.metadata or {}).get("score")) >= score_threshold
+        ]
 
     docs_with_scores = _rerank_candidates(query, docs_with_scores, top_k)
 
@@ -166,17 +164,17 @@ def retrieve_chunks(
 
 
 def _retrieve_candidate_docs(
-    collection: Any,
     query: str,
     candidate_k: int,
     score_threshold: float | None,
     vector_db: PgVectorManager | None,
-    collection_name: str | None,
 ) -> List[tuple[Any, float | None]]:
+    if not vector_db:
+        raise ValueError("Retrieval evaluation requires vector_db")
+
     mode = config.RETRIEVAL_FUSION_MODE
-    if mode == "rrf" and vector_db and collection_name:
+    if mode == "rrf":
         docs = vector_db.rrf_search(
-            collection_name=collection_name,
             query=query,
             dense_k=config.DENSE_TOP_K,
             sparse_k=config.SPARSE_TOP_K,
@@ -184,18 +182,11 @@ def _retrieve_candidate_docs(
             rrf_k=config.RRF_K,
         )
         return [(doc, doc.metadata.get("rrf_score") if doc.metadata else None) for doc in docs]
-    if mode == "dense" and vector_db and collection_name:
-        return [(doc, None) for doc in vector_db.dense_search(collection_name, query, k=candidate_k)]
-    if mode == "sparse" and vector_db and collection_name:
-        return [(doc, None) for doc in vector_db.sparse_search(collection_name, query, k=candidate_k)]
-
-    kwargs = {"score_threshold": score_threshold} if score_threshold is not None else {}
-    try:
-        raw_results = collection.similarity_search_with_score(query, k=candidate_k, **kwargs)
-        return [(doc, score) for doc, score in raw_results]
-    except Exception:
-        docs = collection.similarity_search(query, k=candidate_k, **kwargs)
-        return [(doc, None) for doc in docs]
+    if mode == "dense":
+        return [(doc, None) for doc in vector_db.dense_search(query, k=candidate_k)]
+    if mode == "sparse":
+        return [(doc, None) for doc in vector_db.sparse_search(query, k=candidate_k)]
+    raise ValueError(f"Unsupported retrieval fusion mode: {mode}")
 
 
 def _rerank_candidates(
@@ -242,7 +233,6 @@ def main() -> None:
     parser.add_argument("--dataset-version", default="eval_v1")
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--score-threshold", type=float, default=0.7)
-    parser.add_argument("--collection", default=config.CHILD_COLLECTION)
     args = parser.parse_args()
 
     result = run_retrieval_eval(
@@ -250,7 +240,6 @@ def main() -> None:
         output_dir=args.output_dir,
         run_label=args.run_label,
         top_k=args.top_k,
-        collection_name=args.collection,
         dataset_version=args.dataset_version,
         score_threshold=args.score_threshold,
     )

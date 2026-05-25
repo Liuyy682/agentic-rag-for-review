@@ -1,43 +1,67 @@
+from __future__ import annotations
+
 import re
 from typing import Dict, List
 
-from database.engine import SessionLocal
-from database.models.chunk import ParentChunk, ChildChunk
+from psycopg2.extras import Json, RealDictCursor
+
+from storage.postgres import ensure_schema, transaction
 
 
 class PgParentStoreManager:
-    """PG replacement for ParentStoreManager. Same public API, reads/writes parent_chunks table."""
+    """PostgreSQL parent chunk storage."""
+
+    def __init__(self):
+        ensure_schema()
 
     def save(self, parent_id: str, content: str, metadata: Dict) -> None:
-        session = SessionLocal()
-        try:
-            existing = session.query(ParentChunk).filter(ParentChunk.parent_id == parent_id).first()
-            if existing:
-                existing.page_content = content
-                existing.metadata_ = metadata
-            else:
-                doc_id = metadata.get("doc_id") or metadata.get("source_file", "")
-                session.add(ParentChunk(parent_id=parent_id, doc_id=doc_id, page_content=content, metadata_=metadata))
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+        metadata = dict(metadata or {})
+        doc_id = metadata.get("doc_id") or metadata.get("source_file") or metadata.get("source") or ""
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO parent_chunks (parent_id, doc_id, page_content, metadata)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (parent_id) DO UPDATE SET
+                        doc_id = EXCLUDED.doc_id,
+                        page_content = EXCLUDED.page_content,
+                        metadata = EXCLUDED.metadata
+                    """,
+                    (parent_id, doc_id, content, Json(metadata)),
+                )
 
     def save_many(self, parents: List) -> None:
-        for parent_id, doc in parents:
-            self.save(parent_id, doc.page_content, doc.metadata)
+        if not parents:
+            return
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                for parent_id, doc in parents:
+                    metadata = dict(doc.metadata or {})
+                    doc_id = metadata.get("doc_id") or metadata.get("source_file") or metadata.get("source") or ""
+                    cur.execute(
+                        """
+                        INSERT INTO parent_chunks (parent_id, doc_id, page_content, metadata)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (parent_id) DO UPDATE SET
+                            doc_id = EXCLUDED.doc_id,
+                            page_content = EXCLUDED.page_content,
+                            metadata = EXCLUDED.metadata
+                        """,
+                        (parent_id, doc_id, doc.page_content, Json(metadata)),
+                    )
 
     def load(self, parent_id: str) -> Dict:
-        session = SessionLocal()
-        try:
-            row = session.query(ParentChunk).filter(ParentChunk.parent_id == parent_id).first()
-            if not row:
-                return {}
-            return {"page_content": row.page_content, "metadata": row.metadata_ or {}}
-        finally:
-            session.close()
+        with transaction() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT page_content, metadata FROM parent_chunks WHERE parent_id = %s",
+                    (parent_id,),
+                )
+                row = cur.fetchone()
+        if not row:
+            return {}
+        return {"page_content": row["page_content"], "metadata": row["metadata"] or {}}
 
     def load_content(self, parent_id: str) -> Dict:
         data = self.load(parent_id)
@@ -49,118 +73,46 @@ class PgParentStoreManager:
         unique_ids = list(dict.fromkeys(parent_ids))
         if not unique_ids:
             return []
-        session = SessionLocal()
-        try:
-            rows = session.query(ParentChunk).filter(ParentChunk.parent_id.in_(unique_ids)).all()
-        finally:
-            session.close()
+        with transaction() as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT parent_id, page_content, metadata
+                    FROM parent_chunks
+                    WHERE parent_id = ANY(%s)
+                    """,
+                    (unique_ids,),
+                )
+                rows = cur.fetchall()
+
         key_fn = self._get_sort_key
         return sorted(
             (
-                {"content": row.page_content, "parent_id": row.parent_id, "metadata": row.metadata_ or {}}
+                {"content": row["page_content"], "parent_id": row["parent_id"], "metadata": row["metadata"] or {}}
                 for row in rows
             ),
-            key=lambda d: key_fn(d["parent_id"]),
+            key=lambda item: key_fn(item["parent_id"]),
         )
-
-    def load_child_neighbors(self, anchors: List[Dict], window: int = 1) -> List[Dict]:
-        """Load child chunks around anchor chunk_index values within the same parent."""
-        if not anchors:
-            return []
-
-        normalized = []
-        for anchor in anchors:
-            parent_id = str(anchor.get("parent_id") or "")
-            try:
-                chunk_index = int(anchor.get("chunk_index"))
-            except (TypeError, ValueError):
-                continue
-            if parent_id:
-                normalized.append((parent_id, chunk_index))
-        if not normalized:
-            return []
-
-        session = SessionLocal()
-        seen_child_ids = set()
-        rows_by_key = []
-        try:
-            for request_order, (parent_id, chunk_index) in enumerate(normalized):
-                start = chunk_index - max(0, int(window))
-                end = chunk_index + max(0, int(window))
-                rows = (
-                    session.query(ChildChunk)
-                    .filter(ChildChunk.parent_id == parent_id)
-                    .filter(ChildChunk.chunk_index >= start)
-                    .filter(ChildChunk.chunk_index <= end)
-                    .order_by(ChildChunk.chunk_index.asc(), ChildChunk.id.asc())
-                    .all()
-                )
-                for row in rows:
-                    if row.child_id in seen_child_ids:
-                        continue
-                    seen_child_ids.add(row.child_id)
-                    metadata = dict(row.metadata_ or {})
-                    metadata.update(
-                        {
-                            "chunk_id": row.child_id,
-                            "parent_id": row.parent_id,
-                            "doc_id": row.doc_id,
-                            "chunk_index": row.chunk_index,
-                            "source": row.source,
-                            "source_file": row.source_file,
-                        }
-                    )
-                    rows_by_key.append(
-                        (
-                            request_order,
-                            row.chunk_index if row.chunk_index is not None else 0,
-                            {
-                                "content": row.content,
-                                "parent_id": row.parent_id,
-                                "metadata": metadata,
-                            },
-                        )
-                    )
-        finally:
-            session.close()
-
-        return [item for _, _, item in sorted(rows_by_key, key=lambda row: (row[0], row[1]))]
 
     def delete_many(self, parent_ids: List[str]) -> None:
         if not parent_ids:
             return
-        session = SessionLocal()
-        try:
-            session.query(ChildChunk).filter(ChildChunk.parent_id.in_(parent_ids)).delete(synchronize_session=False)
-            session.query(ParentChunk).filter(ParentChunk.parent_id.in_(parent_ids)).delete(synchronize_session=False)
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM parent_chunks WHERE parent_id = ANY(%s)", (list(parent_ids),))
 
     def delete_by_source_file(self, source_file: str) -> None:
-        session = SessionLocal()
-        try:
-            session.query(ParentChunk).filter(ParentChunk.doc_id == source_file).delete(synchronize_session=False)
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM parent_chunks WHERE doc_id = %s OR metadata->>'source_file' = %s OR metadata->>'source' = %s",
+                    (source_file, source_file, source_file),
+                )
 
     def clear_store(self) -> None:
-        session = SessionLocal()
-        try:
-            session.query(ParentChunk).delete()
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
-        finally:
-            session.close()
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM parent_chunks")
 
     @staticmethod
     def _get_sort_key(id_str):

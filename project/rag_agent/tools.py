@@ -6,11 +6,10 @@ from retrieval.pipeline import RetrievalPipeline
 
 
 class ToolFactory:
-    def __init__(self, collection, vector_db=None, collection_name=None):
+    def __init__(self, vector_db=None, parent_store_manager=None):
         self.pipeline = RetrievalPipeline(
-            collection,
             vector_db=vector_db,
-            collection_name=collection_name,
+            parent_store_manager=parent_store_manager,
         )
         self.parent_store_manager = self.pipeline.parent_store_manager
 
@@ -64,5 +63,4 @@ class ToolFactory:
         """Create and return the tools exposed to the task executor LLM."""
         rag_tool = tool("rag_research")(self._rag_research)
         return [rag_tool]
-
 

@@ -41,10 +41,10 @@ python project/app.py
 该系统实现了高级 RAG 流水线，核心特性如下：
 
 - **父子分块**：文档被拆分为小的子块（便于精准检索），并关联到更大的父块（提供更丰富上下文）
-- **混合检索**：结合稠密向量检索与稀疏检索（BM25），获得更优结果
+- **混合检索**：结合 pgvector 稠密检索与 PostgreSQL 全文检索，并使用 `jieba` 分词
 - **LangGraph Agent**：编排查询改写、检索与回答生成
 - **多提供商支持**：可在 Ollama、OpenAI GPT、Google Gemini、Anthropic Claude 之间无缝切换
-- **向量存储**：使用 Qdrant 进行高效相似度搜索
+- **存储**：使用 PostgreSQL + pgvector 存储子块向量、稀疏检索字段和父块内容
 
 ### 数据流
 
@@ -88,8 +88,9 @@ PDF → Markdown 转换 → 父/子分块 → 向量索引 → Agent 检索 → 
 
 | 文件 | 作用 |
 |------|------|
-| `project/storage/vector_store.py` | Qdrant 客户端封装，含向量模型初始化 |
-| `project/storage/parent_store.py` | 基于文件的父块存储 |
+| `project/storage/postgres.py` | PostgreSQL 连接池与幂等 schema 初始化 |
+| `project/storage/pg_vector_store.py` | 基于 pgvector 的子块索引与检索 |
+| `project/storage/pg_parent_store.py` | PostgreSQL 父块存储 |
 | `project/retrieval/pipeline.py` | 检索编排与父块扩展 |
 | `project/retrieval/fusion.py` | RRF 融合工具 |
 | `project/retrieval/reranker.py` | Cross-encoder 重排 |
@@ -123,24 +124,23 @@ PDF → Markdown 转换 → 父/子分块 → 向量索引 → Agent 检索 → 
 
 ```python
 MARKDOWN_DIR = "runtime/markdown_docs"        # 转换后的 Markdown 文件存储目录
-PARENT_STORE_PATH = "runtime/parent_store"    # 基于文件的父块存储目录
-QDRANT_DB_PATH = "runtime/qdrant_db"          # 本地 Qdrant 向量数据库路径
+INDEX_STATE_DIR = "runtime/index_state"       # JSON manifest 与课程状态
 ```
 
-### Qdrant 配置
+### PostgreSQL 配置
 
 ```python
-CHILD_COLLECTION = "document_child_chunks"  # 子块集合名称
-SPARSE_VECTOR_NAME = "sparse"               # 命名稀疏向量字段（BM25）
+DATABASE_URL = "postgresql://agentic_rag:dev_only@localhost:5432/agentic_rag"
+SPARSE_RETRIEVAL_BACKEND = "postgres_full_text_jieba"
 ```
 
 ### 模型配置
 
 ```python
-DENSE_MODEL = "BAAI/bge-large-zh-v1.5"
-DENSE_EMBEDDING_DIMENSION = 1024
-RERANKER_MODEL = "BAAI/bge-reranker-large"
-SPARSE_MODEL = "Qdrant/bm25"
+DENSE_MODEL = "BAAI/bge-base-zh-v1.5"
+DENSE_EMBEDDING_DIMENSION = 768
+RERANKER_MODEL = "BAAI/bge-reranker-base"
+SPARSE_RETRIEVAL_BACKEND = "postgres_full_text_jieba"
 LLM_PROVIDER = "ollama"  # "ollama" 或 "openai"
 OLLAMA_MODEL = "qwen3:4b-instruct-2507-q4_K_M"
 OPENAI_MODEL = "gpt-5.4-mini"
@@ -308,9 +308,6 @@ ACTIVE_LLM_CONFIG = "ollama"
 
 ```python
 def initialize(self):
-    self.vector_db.create_collection(self.collection_name)
-    collection = self.vector_db.get_collection(self.collection_name)
-    
     # 读取当前激活配置
     active_config = config.LLM_CONFIGS[config.ACTIVE_LLM_CONFIG]
     model = active_config["model"]
@@ -336,7 +333,7 @@ def initialize(self):
         raise ValueError(f"Unsupported LLM provider: {config.ACTIVE_LLM_CONFIG}")
     
     # 继续初始化工具和图
-    tools = ToolFactory(collection).create_tools()
+    tools = ToolFactory(vector_db=self.vector_db, parent_store_manager=self.parent_store).create_tools()
     self.agent_graph = create_agent_graph(llm, tools)
 ```
 
@@ -369,15 +366,15 @@ ACTIVE_LLM_CONFIG = "google"  # 切到 Gemini Pro
 
 ```python
 # 当前中文检索模型
-DENSE_MODEL = "BAAI/bge-large-zh-v1.5"
-DENSE_EMBEDDING_DIMENSION = 1024
+DENSE_MODEL = "BAAI/bge-base-zh-v1.5"
+DENSE_EMBEDDING_DIMENSION = 768
 DENSE_QUERY_INSTRUCTION = "为这个句子生成表示以用于检索相关文章："
 DENSE_NORMALIZE_EMBEDDINGS = True
 
 # 当前中文重排模型
-RERANKER_MODEL = "BAAI/bge-reranker-large"
+RERANKER_MODEL = "BAAI/bge-reranker-base"
 
-SPARSE_MODEL = "Qdrant/bm25"
+SPARSE_RETRIEVAL_BACKEND = "postgres_full_text_jieba"
 ```
 
 如果 Hugging Face 直连不稳定，启动应用前设置国内镜像：
@@ -386,13 +383,9 @@ SPARSE_MODEL = "Qdrant/bm25"
 export HF_ENDPOINT=https://hf-mirror.com
 ```
 
-**步骤 2：** 执行迁移并重新索引文档
+**步骤 2：** 如果 embedding 维度发生变化，重建 PostgreSQL 数据卷并重新索引文档。
 
-```bash
-alembic upgrade head
-```
-
-⚠️ **重要：** `BAAI/bge-large-zh-v1.5` 使用 1024 维向量。迁移 `002` 会破坏式重建 `parent_chunks` 和 `child_chunks`；迁移后请在 Gradio UI 中清空/重新索引文档。
+应用会自动创建表，但已有的 `child_chunks.embedding` 列必须与 `DENSE_EMBEDDING_DIMENSION` 一致；不一致时需要清库后重新上传资料。
 
 **常见 Embedding 模型：**
 
@@ -578,17 +571,9 @@ def route_after_rewrite(state: State) -> Literal["request_clarification", "agent
 
 **添加自定义工具：** 扩展 `tools.py`，加入新的检索策略或外部集成
 
-### 替换存储后端
+### 存储后端
 
-**向量数据库：**
-- 默认：本地 Qdrant
-- 可选：远程 Qdrant Cloud、Pinecone、Weaviate
-- 修改文件：`project/storage/vector_store.py`
-
-**父块存储：**
-- 默认：JSON 文件
-- 可选：PostgreSQL、MongoDB、S3
-- 修改文件：`project/storage/parent_store.py`
+当前运行时存储后端是 PostgreSQL + pgvector。直连 SQL 位于 `project/storage/postgres.py`，子块检索位于 `project/storage/pg_vector_store.py`，父块存储位于 `project/storage/pg_parent_store.py`。
 
 ### 扩展 UI
 
@@ -644,6 +629,6 @@ docker rm -f rag-assistant     # 删除
 | 响应慢 | embedding 模型过大或 `top_k` 过高 | 使用更小 embedding（如 BAAI/bge-base-zh-v1.5）或下调检索工具中的 `top_k` |
 | API 速率限制超限 | 向外部提供商请求过多 | 增加指数退避重试逻辑，或改用本地 Ollama 模型 |
 | 内存不足（OOM） | 文档规模过大或 embedding 过重 | 使用更小 embedding、减小 batch size，或启用 GPU 加速 |
-| 检索结果为空 | 集合未索引或集合名不匹配 | 检查文档是否已上传，并确认配置中的 `CHILD_COLLECTION` 名称一致 |
+| 检索结果为空 | 尚未索引文档或 PostgreSQL 数据被重建 | 重新上传文档，并确认 PostgreSQL 正在运行 |
 | 切换提供商后导入报错 | 缺少 SDK 依赖 | 安装对应包：`pip install langchain-{provider}` |
 | 多次运行回答不一致 | 温度参数过高 | 在配置中设定 `LLM_TEMPERATURE = 0` 获取稳定结果 |

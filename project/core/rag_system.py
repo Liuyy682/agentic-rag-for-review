@@ -10,8 +10,7 @@ from observability.langfuse import Observability
 
 class RAGSystem:
 
-    def __init__(self, collection_name=config.CHILD_COLLECTION):
-        self.collection_name = collection_name
+    def __init__(self):
         self.vector_db = PgVectorManager()
         self.parent_store = PgParentStoreManager()
         self.chunker = DocumentChunker()
@@ -22,9 +21,6 @@ class RAGSystem:
         self.recursion_limit = config.GRAPH_RECURSION_LIMIT
 
     def initialize(self):
-        self.vector_db.create_collection(self.collection_name)
-        collection = self.vector_db.get_collection(self.collection_name)
-
         if not config.DEEPSEEK_API_KEY:
             raise RuntimeError("Set DEEPSEEK_API_KEY in project/.env before starting the RAG app.")
 
@@ -35,9 +31,8 @@ class RAGSystem:
             base_url=config.DEEPSEEK_BASE_URL,
         )
         self.tool_factory = ToolFactory(
-            collection,
             vector_db=self.vector_db,
-            collection_name=self.collection_name,
+            parent_store_manager=self.parent_store,
         )
         tools = self.tool_factory.create_tools()
         self.agent_graph = create_agent_graph(llm, tools)

@@ -16,7 +16,6 @@ from ingestion.index_manifest import (
     current_index_config,
 )
 from ingestion.chunking import DocumentChunker
-from storage.pg_parent_store import PgParentStoreManager
 
 
 def paged_markdown(page_3_text="page three"):
@@ -54,10 +53,10 @@ class FakeVectorDb:
         self.deleted_parent_ids = []
         self.deleted_source_files = []
 
-    def get_collection(self, collection_name):
-        return self.collection
+    def add_documents(self, documents):
+        return self.collection.add_documents(documents)
 
-    def delete_by_parent_ids(self, collection_name, parent_ids):
+    def delete_by_parent_ids(self, parent_ids):
         self.deleted_parent_ids.extend(parent_ids)
         parent_ids = set(parent_ids)
         self.collection.documents = [
@@ -65,25 +64,43 @@ class FakeVectorDb:
             if doc.metadata.get("parent_id") not in parent_ids
         ]
 
-    def delete_by_source_file(self, collection_name, source_file):
+    def delete_by_source_file(self, source_file):
         self.deleted_source_files.append(source_file)
         self.collection.documents = [
             doc for doc in self.collection.documents
             if doc.metadata.get("source_file") != source_file
         ]
 
-    def delete_collection(self, collection_name):
+    def clear_store(self):
         self.collection.documents = []
 
-    def create_collection(self, collection_name):
-        pass
+
+class FakeParentStore:
+    def __init__(self):
+        self.saved = []
+        self.deleted_source_files = []
+        self.cleared = False
+
+    def save_many(self, parents):
+        self.saved.extend(parents)
+
+    def delete_by_source_file(self, source_file):
+        self.deleted_source_files.append(source_file)
+        self.saved = [
+            (parent_id, doc)
+            for parent_id, doc in self.saved
+            if doc.metadata.get("source_file") != source_file
+        ]
+
+    def clear_store(self):
+        self.cleared = True
+        self.saved = []
 
 
 class FakeRagSystem:
-    def __init__(self, parent_store_path):
-        self.collection_name = "test_collection"
+    def __init__(self, state_dir=None):
         self.vector_db = FakeVectorDb()
-        self.parent_store = PgParentStoreManager()
+        self.parent_store = FakeParentStore()
         self.chunker = DocumentChunker()
 
 
@@ -127,7 +144,7 @@ class TestPageIncrementalIndex(unittest.TestCase):
                 "MARKDOWN_CLEANING_DIFF_DIR": str(temp_path / "diffs"),
                 "DOCUMENT_IMAGE_DIR": str(temp_path / "images"),
                 "INGESTION_LOG_DIR": str(temp_path / "ingestion_logs"),
-                "PARENT_STORE_PATH": str(temp_path / "parents"),
+                "INDEX_STATE_DIR": str(temp_path / "index_state"),
                 "COURSE_STRUCTURE_PATH": str(temp_path / "course_structure.json"),
                 "MARKDOWN_CLEANING_ENABLED": False,
                 "INGESTION_SKIP_UNCHANGED_FILES": True,
@@ -140,7 +157,7 @@ class TestPageIncrementalIndex(unittest.TestCase):
             with ConfigPatch(**values):
                 source = temp_path / "slides.md"
                 source.write_text(paged_markdown(), encoding="utf-8")
-                rag_system = FakeRagSystem(config.PARENT_STORE_PATH)
+                rag_system = FakeRagSystem(config.INDEX_STATE_DIR)
                 manager = DocumentManager(rag_system)
 
                 added, skipped = manager.add_documents([str(source)])
@@ -181,7 +198,7 @@ class TestPageIncrementalIndex(unittest.TestCase):
                 "MARKDOWN_CLEANING_DIFF_DIR": str(temp_path / "diffs"),
                 "DOCUMENT_IMAGE_DIR": str(temp_path / "images"),
                 "INGESTION_LOG_DIR": str(temp_path / "ingestion_logs"),
-                "PARENT_STORE_PATH": str(temp_path / "parents"),
+                "INDEX_STATE_DIR": str(temp_path / "index_state"),
                 "COURSE_STRUCTURE_PATH": str(temp_path / "course_structure.json"),
                 "MARKDOWN_CLEANING_ENABLED": False,
                 "INGESTION_SKIP_UNCHANGED_FILES": True,
@@ -194,7 +211,7 @@ class TestPageIncrementalIndex(unittest.TestCase):
             with ConfigPatch(**values):
                 source = temp_path / "notes.docx"
                 source.write_bytes(b"fake")
-                rag_system = FakeRagSystem(config.PARENT_STORE_PATH)
+                rag_system = FakeRagSystem(config.INDEX_STATE_DIR)
                 manager = DocumentManager(rag_system)
 
                 with patch("ingestion.conversion._convert_with_markitdown", return_value="# Notes\n\nBody"):

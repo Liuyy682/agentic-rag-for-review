@@ -9,7 +9,7 @@ from pathlib import Path
 import config
 
 
-INDEX_SCHEMA_VERSION = 3
+INDEX_SCHEMA_VERSION = 4
 
 
 def _stable_json_hash(value) -> str:
@@ -41,8 +41,7 @@ def current_index_config() -> dict:
         "dense_embedding_dimension": config.DENSE_EMBEDDING_DIMENSION,
         "dense_query_instruction": config.DENSE_QUERY_INSTRUCTION,
         "dense_normalize_embeddings": config.DENSE_NORMALIZE_EMBEDDINGS,
-        "sparse_model": config.SPARSE_MODEL,
-        "sparse_vector_name": config.SPARSE_VECTOR_NAME,
+        "sparse_retrieval_backend": config.SPARSE_RETRIEVAL_BACKEND,
     }
     converter_config = {
         "document_converter": getattr(config, "DOCUMENT_CONVERTER", "markitdown"),
@@ -51,7 +50,7 @@ def current_index_config() -> dict:
     return {
         "document_converter": converter_config["document_converter"],
         "dense_model": config.DENSE_MODEL,
-        "sparse_model": config.SPARSE_MODEL,
+        "sparse_retrieval_backend": config.SPARSE_RETRIEVAL_BACKEND,
         "converter_config_hash": _stable_json_hash(converter_config),
         "chunker_config_hash": _stable_json_hash(chunker_config),
         "cleaner_config_hash": _stable_json_hash(cleaner_config),
@@ -189,7 +188,7 @@ def _utc_now() -> str:
 
 class IndexManifest:
     def __init__(self, path: str | Path | None = None):
-        self.path = Path(path) if path else Path(config.PARENT_STORE_PATH) / "index_manifest.json"
+        self.path = Path(path) if path else Path(config.INDEX_STATE_DIR) / "index_manifest.json"
         self.data = self._load()
 
     def _load(self) -> dict:

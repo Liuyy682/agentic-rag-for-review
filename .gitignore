@@ -17,3 +17,5 @@ __pycache__/
 .codex
 docs/
 notebooks/
+project/.env
+project/interview/

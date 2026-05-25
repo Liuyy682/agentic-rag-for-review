@@ -24,7 +24,6 @@ def run_ragas_eval(
     output_dir: str,
     run_label: str,
     top_k: int,
-    collection_name: str,
     dataset_version: str,
     score_threshold: float | None,
     skip_ragas: bool = False,
@@ -40,20 +39,17 @@ def run_ragas_eval(
     run_dir.mkdir(parents=True, exist_ok=True)
     reports_dir.mkdir(parents=True, exist_ok=True)
 
-    rag_system = RAGSystem(collection_name=collection_name)
+    rag_system = RAGSystem()
     rag_system.initialize()
-    collection = rag_system.vector_db.get_collection(collection_name)
 
     outputs: List[Dict[str, Any]] = []
     for item in questions:
         rag_system.reset_thread()
         retrieved = retrieve_chunks(
-            collection,
-            item.question,
-            top_k,
-            score_threshold,
+            query=item.question,
+            top_k=top_k,
+            score_threshold=score_threshold,
             vector_db=rag_system.vector_db,
-            collection_name=collection_name,
         )
         answer = invoke_rag_answer(rag_system, item.question)
         outputs.append(
@@ -164,7 +160,6 @@ def main() -> None:
     parser.add_argument("--dataset-version", default="eval_v1")
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--score-threshold", type=float, default=0.7)
-    parser.add_argument("--collection", default=config.CHILD_COLLECTION)
     parser.add_argument("--skip-ragas", action="store_true")
     parser.add_argument("--ragas-timeout", type=int, default=180)
     parser.add_argument("--ragas-max-retries", type=int, default=2)
@@ -177,7 +172,6 @@ def main() -> None:
         output_dir=args.output_dir,
         run_label=args.run_label,
         top_k=args.top_k,
-        collection_name=args.collection,
         dataset_version=args.dataset_version,
         score_threshold=args.score_threshold,
         skip_ragas=args.skip_ragas,
