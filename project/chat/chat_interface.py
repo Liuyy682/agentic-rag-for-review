@@ -176,57 +176,59 @@ class ChatInterface:
                 return content
         return ""
 
-    def chat(self, message, history, course_name=None):
-        """Generator that streams Gradio chat message dicts."""
+    def chat(self, message, history, course_name=None, session_id=None):
+        """Generator that streams chat message dicts."""
         if not self.rag_system.agent_graph:
             yield "⚠️ System not initialized!"
             return
 
-        if self.course_store and course_name:
-            self.rag_system.set_course_scope(self.course_store.source_files_for_course(course_name))
-        else:
-            self.rag_system.set_course_scope([])
+        with self.rag_system.chat_lock:
+            if self.course_store and course_name:
+                self.rag_system.set_course_scope(self.course_store.source_files_for_course(course_name))
+            else:
+                self.rag_system.set_course_scope([])
 
-        session_id    = self.rag_system.thread_id
-        user_message  = message.strip()
-        memory        = self._load_conversation_memory(session_id)
-        config        = self.rag_system.get_config()
+            session_id    = session_id or self.rag_system.thread_id
+            user_message  = message.strip()
+            memory        = self._load_conversation_memory(session_id)
+            config        = self.rag_system.get_config(thread_id=session_id)
 
-        try:
-            stream_input = {
-                "messages": [HumanMessage(content=user_message)],
-                "conversation_memory": memory,
-            }
+            try:
+                stream_input = {
+                    "messages": [HumanMessage(content=user_message)],
+                    "conversation_memory": memory,
+                }
 
-            response_messages  = []
-            active_tool_calls  = {}
-            system_node_buffer = {}
+                response_messages  = []
+                active_tool_calls  = {}
+                system_node_buffer = {}
 
-            for chunk, metadata in self.rag_system.agent_graph.stream(stream_input, config=config, stream_mode="messages"):
-                node = metadata.get("langgraph_node", "")
+                for chunk, metadata in self.rag_system.agent_graph.stream(stream_input, config=config, stream_mode="messages"):
+                    node = metadata.get("langgraph_node", "")
 
-                if node in SYSTEM_NODES and isinstance(chunk, AIMessageChunk) and chunk.content:
-                    self._handle_system_node(chunk, node, response_messages, system_node_buffer)
+                    if node in SYSTEM_NODES and isinstance(chunk, AIMessageChunk) and chunk.content:
+                        self._handle_system_node(chunk, node, response_messages, system_node_buffer)
 
-                elif hasattr(chunk, "tool_calls") and chunk.tool_calls:
-                    self._handle_tool_call(chunk, response_messages, active_tool_calls)
+                    elif hasattr(chunk, "tool_calls") and chunk.tool_calls:
+                        self._handle_tool_call(chunk, response_messages, active_tool_calls)
 
-                elif isinstance(chunk, ToolMessage):
-                    self._handle_tool_result(chunk, response_messages, active_tool_calls)
+                    elif isinstance(chunk, ToolMessage):
+                        self._handle_tool_result(chunk, response_messages, active_tool_calls)
 
-                elif isinstance(chunk, AIMessageChunk) and chunk.content and node not in SILENT_NODES:
-                    self._handle_llm_token(chunk, node, response_messages)
+                    elif isinstance(chunk, AIMessageChunk) and chunk.content and node not in SILENT_NODES:
+                        self._handle_llm_token(chunk, node, response_messages)
 
-                yield response_messages
+                    yield response_messages
 
-            final_response = self._extract_final_response(response_messages)
-            if final_response:
-                self._save_turn(session_id, user_message, final_response, course_name=course_name)
+                final_response = self._extract_final_response(response_messages)
+                if final_response:
+                    self._save_turn(session_id, user_message, final_response, course_name=course_name)
 
-        except Exception as e:
-            yield f"❌ Error: {str(e)}"
+            except Exception as e:
+                yield f"❌ Error: {str(e)}"
 
-    def clear_session(self):
-        self._delete_session_memory(self.rag_system.thread_id)
-        self.rag_system.reset_thread()
+    def clear_session(self, session_id=None):
+        sid = session_id or self.rag_system.thread_id
+        self._delete_session_memory(sid)
+        self.rag_system.reset_thread(sid)
         self.rag_system.observability.flush()

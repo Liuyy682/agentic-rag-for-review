@@ -1,3 +1,4 @@
+import threading
 import uuid
 from langchain_openai import ChatOpenAI
 import config
@@ -19,6 +20,7 @@ class RAGSystem:
         self.tool_factory = None
         self.thread_id = str(uuid.uuid4())
         self.recursion_limit = config.GRAPH_RECURSION_LIMIT
+        self.chat_lock = threading.Lock()
 
     def initialize(self):
         if not config.DEEPSEEK_API_KEY:
@@ -43,16 +45,18 @@ class RAGSystem:
         if self.tool_factory:
             self.tool_factory.set_allowed_source_files(source_files)
 
-    def get_config(self):
-        cfg = {"configurable": {"thread_id": self.thread_id}, "recursion_limit": self.recursion_limit}
+    def get_config(self, thread_id=None):
+        cfg = {"configurable": {"thread_id": thread_id or self.thread_id}, "recursion_limit": self.recursion_limit}
         handler = self.observability.get_handler()
         if handler:
             cfg["callbacks"] = [handler]
         return cfg
 
-    def reset_thread(self):
+    def reset_thread(self, thread_id=None):
+        tid = thread_id or self.thread_id
         try:
-            self.agent_graph.checkpointer.delete_thread(self.thread_id)
+            self.agent_graph.checkpointer.delete_thread(tid)
         except Exception as e:
-            print(f"Warning: Could not delete thread {self.thread_id}: {e}")
-        self.thread_id = str(uuid.uuid4())
+            print(f"Warning: Could not delete thread {tid}: {e}")
+        if thread_id is None:
+            self.thread_id = str(uuid.uuid4())

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic RAG</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Tab bar -->
+        <nav class="tab-nav">
+            <button class="tab-btn active" data-tab="documents">Documents</button>
+            <button class="tab-btn" data-tab="chat">Chat</button>
+        </nav>
+
+        <!-- ===== Documents Tab ===== -->
+        <section id="tab-documents" class="tab-panel active">
+            <h2>Add New Documents</h2>
+            <p class="help-text">
+                Upload PDF, Markdown, Word, or PowerPoint files. Duplicate files will be automatically skipped based on content hash. Each file will be converted to Markdown, cleaned, chunked, and indexed for retrieval.
+            </p>
+
+            <div class="upload-zone" id="upload-zone">
+                <input type="file" id="file-input" multiple accept=".pdf,.md,.docx,.pptx" hidden>
+                <div class="upload-placeholder" id="upload-placeholder">
+                    <span class="upload-icon">+</span>
+                    <span>Drop PDF, MD, DOCX, or PPTX files here</span>
+                    <span class="upload-browse">or click to browse</span>
+                </div>
+                <ul class="file-preview-list hidden" id="file-preview-list"></ul>
+            </div>
+
+            <div class="form-group">
+                <label for="course-names-input">Course name(s)</label>
+                <input type="text" id="course-names-input" placeholder="e.g. Database Systems, Computer Networks">
+            </div>
+
+            <button id="add-btn" class="btn btn-primary">Add Documents</button>
+
+            <div class="progress-wrap hidden" id="upload-progress-wrap">
+                <div class="progress-bar"><div class="progress-bar-fill" id="upload-progress-bar"></div></div>
+                <span class="progress-label" id="upload-progress-label"></span>
+            </div>
+
+            <h2>Current Documents in the Knowledge Base</h2>
+            <div class="readonly-box" id="file-list">No documents.</div>
+
+            <div class="btn-row">
+                <button id="refresh-btn" class="btn">Refresh</button>
+                <button id="clear-btn" class="btn btn-danger">Clear All</button>
+            </div>
+
+            <h2>Courses</h2>
+            <div class="readonly-box" id="course-list">No courses.</div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="edit-course-dropdown">Course</label>
+                    <select id="edit-course-dropdown"><option value="">-- Select course --</option></select>
+                </div>
+                <div class="form-group">
+                    <label for="new-course-name">New course name</label>
+                    <input type="text" id="new-course-name" placeholder="New name">
+                </div>
+            </div>
+            <button id="rename-course-btn" class="btn">Rename Course</button>
+
+            <div class="form-row" style="margin-top:20px">
+                <div class="form-group">
+                    <label for="section-current-name">Current section name</label>
+                    <input type="text" id="section-current-name" placeholder="Current section">
+                </div>
+                <div class="form-group">
+                    <label for="section-new-name">New section name</label>
+                    <input type="text" id="section-new-name" placeholder="New name">
+                </div>
+            </div>
+            <button id="rename-section-btn" class="btn">Rename Section</button>
+        </section>
+
+        <!-- ===== Chat Tab ===== -->
+        <section id="tab-chat" class="tab-panel">
+            <div class="chat-controls">
+                <label for="chat-course-dropdown">Course scope</label>
+                <select id="chat-course-dropdown">
+                    <option value="">All courses</option>
+                </select>
+            </div>
+
+            <div class="chat-container">
+                <div class="chat-messages" id="chat-messages">
+                    <div class="chat-placeholder" id="chat-placeholder">
+                        <strong>Ask me anything!</strong>
+                        <em>I'll search, reason, and act to give you the best answer :)</em>
+                    </div>
+                </div>
+            </div>
+
+            <form class="chat-input-form" id="chat-form" autocomplete="off">
+                <input type="text" id="chat-input" placeholder="Type a message...">
+                <button type="submit" class="btn btn-send" id="chat-send-btn" title="Send">&#9654;</button>
+                <button type="button" class="btn btn-clear" id="chat-clear-btn" title="Clear session">&#10005;</button>
+            </form>
+        </section>
+    </div>
+
+    <div id="toast-container"></div>
+    <script src="/static/app.js"></script>
+</body>
+</html>

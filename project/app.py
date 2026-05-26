@@ -2,6 +2,10 @@ import sys
 import os
 import logging
 
+# Suppress transformers safetensors auto-conversion (background thread tries to
+# reach huggingface.co; times out without network, producing noisy tracebacks).
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 from dotenv import load_dotenv
@@ -16,11 +20,8 @@ class _SuppressOtelDetachWarning(logging.Filter):
 
 logging.getLogger("opentelemetry.context").addFilter(_SuppressOtelDetachWarning())
 
-from ui.css import custom_css
-from ui.gradio_app import create_gradio_ui
+import uvicorn
 
 if __name__ == "__main__":
-    print("\n🔨 Creating RAG Assistant...")
-    demo = create_gradio_ui()
-    print("\n🚀 Launching RAG Assistant...")
-    demo.launch(css=custom_css)
+    print("\nStarting Agentic RAG server on http://0.0.0.0:7860")
+    uvicorn.run("server:app", host="0.0.0.0", port=7860, reload=False)
