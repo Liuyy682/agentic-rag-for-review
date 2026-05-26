@@ -59,23 +59,13 @@ function renderMarkdown(text) {
 // ── AppState ──────────────────────────────────────────────────────────────
 
 var AppState = {
-    sessionId: null,
+    sessionId: null,        // Currently active session ID
     activeTab: 'documents',
     courseChoices: [],
     chatAbortController: null,
     pendingFiles: [],
+    sessions: [],           // List of sessions for the current course
 };
-
-function getSessionId() {
-    if (!AppState.sessionId) {
-        AppState.sessionId = localStorage.getItem('rag_session_id');
-        if (!AppState.sessionId) {
-            AppState.sessionId = crypto.randomUUID();
-            localStorage.setItem('rag_session_id', AppState.sessionId);
-        }
-    }
-    return AppState.sessionId;
-}
 
 // ── Toast ─────────────────────────────────────────────────────────────────
 
@@ -151,11 +141,44 @@ var API = {
         return resp.json();
     },
 
-    async clearChat() {
+    // ── Session API ──────────────────────────────────────────────────
+
+    async listSessions(courseName) {
+        var url = '/api/sessions?course_name=' + encodeURIComponent(courseName || '');
+        var resp = await fetch(url);
+        if (!resp.ok) throw new Error('Failed to list sessions');
+        return resp.json();
+    },
+
+    async createSession(courseName) {
+        var resp = await fetch('/api/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ course_name: courseName || '' }),
+        });
+        if (!resp.ok) throw new Error('Failed to create session');
+        return resp.json();
+    },
+
+    async deleteSession(sessionId) {
+        var resp = await fetch('/api/sessions/' + encodeURIComponent(sessionId), {
+            method: 'DELETE',
+        });
+        if (!resp.ok) throw new Error('Failed to delete session');
+        return resp.json();
+    },
+
+    async getSessionTurns(sessionId) {
+        var resp = await fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/turns');
+        if (!resp.ok) throw new Error('Failed to load session turns');
+        return resp.json();
+    },
+
+    async clearChat(sessionId) {
         var resp = await fetch('/api/chat/clear', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session_id: getSessionId() }),
+            body: JSON.stringify({ session_id: sessionId }),
         });
         return resp.json();
     },
@@ -467,6 +490,184 @@ var DocumentsTab = {
     },
 };
 
+// ── Session manager ───────────────────────────────────────────────────────
+
+var SessionManager = {
+    init: function () {
+        document.getElementById('chat-course-dropdown').addEventListener('change', this.onCourseChange.bind(this));
+        document.getElementById('chat-session-dropdown').addEventListener('change', this.onSessionChange.bind(this));
+        document.getElementById('chat-new-session-btn').addEventListener('click', this.handleNewSession.bind(this));
+        document.getElementById('chat-delete-session-btn').addEventListener('click', this.handleDeleteSession.bind(this));
+    },
+
+    getCurrentCourse: function () {
+        return document.getElementById('chat-course-dropdown').value || '';
+    },
+
+    onCourseChange: async function () {
+        await this.loadSessions();
+    },
+
+    onSessionChange: async function () {
+        var sessionId = document.getElementById('chat-session-dropdown').value;
+        if (!sessionId) return;
+        AppState.sessionId = sessionId;
+        await this.loadSessionHistory(sessionId);
+    },
+
+    loadSessions: async function () {
+        var courseName = this.getCurrentCourse();
+        try {
+            var result = await API.listSessions(courseName);
+            AppState.sessions = result.sessions || [];
+
+            if (AppState.sessions.length === 0) {
+                // Auto-create a session for this course
+                await this.autoCreateSession(courseName);
+                return;
+            }
+
+            this.renderSessionDropdown();
+
+            // Select the most recent session (first in list)
+            var firstId = AppState.sessions[0].id;
+            document.getElementById('chat-session-dropdown').value = firstId;
+            AppState.sessionId = firstId;
+            await this.loadSessionHistory(firstId);
+        } catch (e) {
+            showToast('Failed to load sessions: ' + e.message, 'error');
+        }
+    },
+
+    autoCreateSession: async function (courseName) {
+        try {
+            var result = await API.createSession(courseName);
+            AppState.sessionId = result.session_id;
+            // Reload sessions to get the full list
+            var listResult = await API.listSessions(courseName);
+            AppState.sessions = listResult.sessions || [];
+            this.renderSessionDropdown();
+            // Ensure the new session is selected
+            document.getElementById('chat-session-dropdown').value = AppState.sessionId;
+            ChatTab.clearMessages();
+        } catch (e) {
+            showToast('Failed to create session: ' + e.message, 'error');
+        }
+    },
+
+    renderSessionDropdown: function () {
+        var select = document.getElementById('chat-session-dropdown');
+        var currentVal = select.value;
+        var html = '';
+        for (var i = 0; i < AppState.sessions.length; i++) {
+            var s = AppState.sessions[i];
+            var label = s.title || 'New Session';
+            html += '<option value="' + s.id + '">' + escapeHtml(label) + '</option>';
+        }
+        if (!html) {
+            html = '<option value="">No sessions</option>';
+        }
+        select.innerHTML = html;
+        // Restore selection if the current session still exists
+        if (currentVal && AppState.sessions.some(function (s) { return s.id === currentVal; })) {
+            select.value = currentVal;
+        }
+    },
+
+    refreshDropdownOnly: async function () {
+        var courseName = this.getCurrentCourse();
+        try {
+            var result = await API.listSessions(courseName);
+            AppState.sessions = result.sessions || [];
+            this.renderSessionDropdown();
+        } catch (e) {
+            console.warn('Failed to refresh session dropdown:', e);
+        }
+    },
+
+    loadSessionHistory: async function (sessionId) {
+        try {
+            var result = await API.getSessionTurns(sessionId);
+            var turns = result.turns || [];
+            ChatTab.clearMessages();
+            for (var i = 0; i < turns.length; i++) {
+                var t = turns[i];
+                ChatTab.addMessage('user', t.user_original);
+                ChatTab.addMessage('assistant', t.assistant_final);
+            }
+        } catch (e) {
+            // Non-critical: chat still works without history
+            console.warn('Failed to load session history:', e);
+        }
+    },
+
+    handleNewSession: async function () {
+        var courseName = this.getCurrentCourse();
+        try {
+            var result = await API.createSession(courseName);
+            AppState.sessionId = result.session_id;
+            // Reload sessions
+            var listResult = await API.listSessions(courseName);
+            AppState.sessions = listResult.sessions || [];
+            this.renderSessionDropdown();
+            document.getElementById('chat-session-dropdown').value = AppState.sessionId;
+            ChatTab.clearMessages();
+            showToast('New session created', 'info');
+        } catch (e) {
+            showToast('Failed to create session: ' + e.message, 'error');
+        }
+    },
+
+    handleDeleteSession: async function () {
+        var sessionId = AppState.sessionId;
+        if (!sessionId) { showToast('No session to delete', 'warning'); return; }
+        if (AppState.sessions.length <= 1) {
+            showToast('Cannot delete the only session', 'warning');
+            return;
+        }
+        if (!confirm('Delete this session and all its messages?')) return;
+
+        try {
+            await API.deleteSession(sessionId);
+            // Reload sessions
+            var courseName = this.getCurrentCourse();
+            var listResult = await API.listSessions(courseName);
+            AppState.sessions = listResult.sessions || [];
+
+            if (AppState.sessions.length === 0) {
+                await this.autoCreateSession(courseName);
+            } else {
+                this.renderSessionDropdown();
+                AppState.sessionId = AppState.sessions[0].id;
+                document.getElementById('chat-session-dropdown').value = AppState.sessionId;
+                await this.loadSessionHistory(AppState.sessionId);
+            }
+            showToast('Session deleted', 'info');
+        } catch (e) {
+            showToast('Failed to delete session: ' + e.message, 'error');
+        }
+    },
+};
+
+function formatDate(isoStr) {
+    if (!isoStr) return '';
+    try {
+        var d = new Date(isoStr);
+        var month = ('0' + (d.getMonth() + 1)).slice(-2);
+        var day = ('0' + d.getDate()).slice(-2);
+        var hours = ('0' + d.getHours()).slice(-2);
+        var mins = ('0' + d.getMinutes()).slice(-2);
+        return d.getFullYear() + '-' + month + '-' + day + ' ' + hours + ':' + mins;
+    } catch (e) {
+        return isoStr;
+    }
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 // ── Chat Tab ───────────────────────────────────────────────────────────────
 
 var ChatTab = {
@@ -482,6 +683,10 @@ var ChatTab = {
     handleSend: function (e) {
         e.preventDefault();
         if (this.loading) return;
+        if (!AppState.sessionId) {
+            showToast('No session selected', 'warning');
+            return;
+        }
         var input = document.getElementById('chat-input');
         var message = input.value.trim();
         if (!message) return;
@@ -505,7 +710,7 @@ var ChatTab = {
             message: message,
             history: this.getHistory(),
             course_name: courseDropdown.value || null,
-            session_id: getSessionId(),
+            session_id: AppState.sessionId,
         }, {
             onMessages: function (messages) { self.renderMessages(messages); },
             onDone: function () { self.handleDone(); },
@@ -598,6 +803,12 @@ var ChatTab = {
         this.loading = false;
         document.getElementById('chat-send-btn').disabled = false;
         document.getElementById('chat-input').focus();
+
+        SessionManager.refreshDropdownOnly();
+        var self = this;
+        setTimeout(function () {
+            SessionManager.refreshDropdownOnly();
+        }, 3000);
     },
 
     handleError: function (msg) {
@@ -656,6 +867,17 @@ var ChatTab = {
         return el;
     },
 
+    clearMessages: function () {
+        var container = document.getElementById('chat-messages');
+        container.innerHTML =
+            '<div class="chat-placeholder" id="chat-placeholder">' +
+            '<strong>Ask me anything!</strong>' +
+            '<em>I\'ll search, reason, and act to give you the best answer :)</em>' +
+            '</div>';
+        this.msgEls = [];
+        this.done = false;
+    },
+
     scrollToBottom: function () {
         var container = document.getElementById('chat-messages');
         container.scrollTop = container.scrollHeight;
@@ -677,16 +899,10 @@ var ChatTab = {
     },
 
     handleClear: async function () {
+        if (!AppState.sessionId) return;
         try {
-            await API.clearChat();
-            var container = document.getElementById('chat-messages');
-            container.innerHTML =
-                '<div class="chat-placeholder" id="chat-placeholder">' +
-                '<strong>Ask me anything!</strong>' +
-                '<em>I\'ll search, reason, and act to give you the best answer :)</em>' +
-                '</div>';
-            this.msgEls = [];
-            this.done = false;
+            await API.clearChat(AppState.sessionId);
+            this.clearMessages();
             showToast('Session cleared', 'info');
         } catch (e) {
             showToast('Clear session failed: ' + e.message, 'error');
@@ -710,7 +926,11 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     DocumentsTab.init();
+    SessionManager.init();
     ChatTab.init();
 
-    DocumentsTab.refreshAll();
+    // Load courses, then sessions for the initially selected course
+    DocumentsTab.refreshAll().then(function () {
+        return SessionManager.loadSessions();
+    });
 });

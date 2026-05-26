@@ -306,13 +306,25 @@ h2 {
     margin-bottom: 12px;
 }
 
-.chat-controls label {
-    font-size: 13px;
-    color: var(--text-secondary);
-    margin-right: 8px;
+.chat-controls-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
 }
 
-.chat-controls select {
+.chat-controls-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.chat-controls-group label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.chat-controls-group select {
     padding: 6px 10px;
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -320,6 +332,40 @@ h2 {
     color: var(--text-primary);
     font-size: 13px;
     font-family: var(--font);
+    min-width: 120px;
+}
+
+.chat-session-group {
+    flex: 1;
+}
+
+.chat-session-group select {
+    width: 100%;
+}
+
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-family: var(--font);
+    white-space: nowrap;
+    height: fit-content;
+}
+
+.btn-sm:hover { background: var(--bg-hover); }
+
+.btn-danger-outline {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+
+.btn-danger-outline:hover {
+    background: var(--danger);
+    color: #fff;
 }
 
 .chat-container {

@@ -37,6 +37,9 @@ class ChatRequest(BaseModel):
 class ClearChatRequest(BaseModel):
     session_id: str
 
+class CreateSessionRequest(BaseModel):
+    course_name: str = ""
+
 
 # ── Document endpoints ───────────────────────────────────────────────────────
 
@@ -134,6 +137,11 @@ async def rename_course(body: RenameCourseRequest):
     ok = await asyncio.to_thread(doc_manager.rename_course, body.current_name, body.new_name)
     if not ok:
         return {"success": False, "error": f"Failed to rename '{body.current_name}'"}
+    # Sync session store
+    chat_interface = get_rag_app().chat_interface
+    await asyncio.to_thread(
+        chat_interface.session_memory.rename_course_in_sessions, body.current_name, body.new_name
+    )
     choices = await asyncio.to_thread(doc_manager.get_course_choices)
     formatted = await asyncio.to_thread(doc_manager.get_course_list)
     return {"success": True, "choices": choices, "formatted": formatted}
@@ -154,6 +162,41 @@ async def rename_section(body: RenameSectionRequest):
         return {"success": False, "error": f"Failed to rename section '{body.current_section}'"}
     formatted = await asyncio.to_thread(doc_manager.get_course_list)
     return {"success": True, "formatted": formatted}
+
+
+# ── Session endpoints ───────────────────────────────────────────────────────
+
+@router.get("/sessions")
+async def list_sessions(course_name: str = ""):
+    rag_app = get_rag_app()
+    store = rag_app.chat_interface.session_memory
+    sessions = await asyncio.to_thread(store.list_sessions, course_name)
+    return {"sessions": sessions}
+
+
+@router.post("/sessions")
+async def create_session(body: CreateSessionRequest):
+    rag_app = get_rag_app()
+    store = rag_app.chat_interface.session_memory
+    session_id = await asyncio.to_thread(store.create_session, body.course_name)
+    return {"session_id": session_id, "course_name": body.course_name}
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    rag_app = get_rag_app()
+    store = rag_app.chat_interface.session_memory
+    await asyncio.to_thread(store.delete_session, session_id)
+    rag_app.chat_interface.rag_system.reset_thread(session_id)
+    return {"status": "ok"}
+
+
+@router.get("/sessions/{session_id}/turns")
+async def get_session_turns(session_id: str):
+    rag_app = get_rag_app()
+    store = rag_app.chat_interface.session_memory
+    turns = await asyncio.to_thread(store.get_session_turns, session_id)
+    return {"turns": turns}
 
 
 # ── Chat endpoints ───────────────────────────────────────────────────────────

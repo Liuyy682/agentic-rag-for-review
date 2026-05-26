@@ -40,6 +40,7 @@ class RAGSystem:
         )
         tools = self.tool_factory.create_tools()
         self.agent_graph = create_agent_graph(llm, tools)
+        self.llm = llm
 
     def set_course_scope(self, source_files=None):
         if self.tool_factory:

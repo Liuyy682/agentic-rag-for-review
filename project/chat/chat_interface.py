@@ -1,6 +1,7 @@
 import json
 import re
-from langchain_core.messages import HumanMessage, AIMessageChunk, ToolMessage
+import threading
+from langchain_core.messages import HumanMessage, AIMessageChunk, ToolMessage, SystemMessage
 
 from .session_memory import SessionMemoryStore
 
@@ -158,6 +159,46 @@ class ChatInterface:
         except Exception as e:
             print(f"Warning: Could not save session memory for {session_id}: {e}")
 
+    def _generate_title_async(self, session_id: str):
+        """Generate a concise session title using the LLM in a daemon thread."""
+        try:
+            turns = self.session_memory.get_session_turns(session_id)
+            if not turns:
+                return
+
+            lines = []
+            for turn in turns:
+                user_text = (turn.get("user_original") or "")[:300]
+                assistant_text = (turn.get("assistant_final") or "")[:300]
+                lines.append(f"User: {user_text}")
+                lines.append(f"Assistant: {assistant_text}")
+            conversation_text = "\n".join(lines)
+
+            prompt = (
+                "Summarize the following conversation into a short, descriptive title.\n"
+                "Rules:\n"
+                "- Maximum 8 words.\n"
+                "- Capture the main topic or question.\n"
+                "- Return ONLY the title text. No quotes, no prefixes, no extra commentary.\n"
+                "\n"
+                "Conversation:\n"
+                f"{conversation_text}\n"
+                "\n"
+                "Title:"
+            )
+
+            response = self.rag_system.llm.invoke([SystemMessage(content=prompt)])
+
+            title = (response.content or "").strip().strip("\"'").strip()
+            words = title.split()
+            if len(words) > 8:
+                title = " ".join(words[:8])
+
+            if title:
+                self.session_memory.update_session_title(session_id, title)
+        except Exception as e:
+            print(f"Warning: Title generation failed for session {session_id}: {e}")
+
     def _delete_session_memory(self, session_id):
         try:
             self.session_memory.delete_session(session_id)
@@ -223,6 +264,12 @@ class ChatInterface:
                 final_response = self._extract_final_response(response_messages)
                 if final_response:
                     self._save_turn(session_id, user_message, final_response, course_name=course_name)
+
+                threading.Thread(
+                    target=self._generate_title_async,
+                    args=(session_id,),
+                    daemon=True,
+                ).start()
 
             except Exception as e:
                 yield f"❌ Error: {str(e)}"

@@ -82,10 +82,22 @@
         <!-- ===== Chat Tab ===== -->
         <section id="tab-chat" class="tab-panel">
             <div class="chat-controls">
-                <label for="chat-course-dropdown">Course scope</label>
-                <select id="chat-course-dropdown">
-                    <option value="">All courses</option>
-                </select>
+                <div class="chat-controls-row">
+                    <div class="chat-controls-group">
+                        <label for="chat-course-dropdown">Course</label>
+                        <select id="chat-course-dropdown">
+                            <option value="">All courses</option>
+                        </select>
+                    </div>
+                    <div class="chat-controls-group chat-session-group">
+                        <label for="chat-session-dropdown">Session</label>
+                        <select id="chat-session-dropdown">
+                            <option value="">No sessions</option>
+                        </select>
+                    </div>
+                    <button type="button" class="btn btn-sm" id="chat-new-session-btn" title="New session">+ New</button>
+                    <button type="button" class="btn btn-sm btn-danger-outline" id="chat-delete-session-btn" title="Delete session">Del</button>
+                </div>
             </div>
 
             <div class="chat-container">
