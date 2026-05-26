@@ -30,6 +30,7 @@ class RAGSystem:
             api_key=config.DEEPSEEK_API_KEY,
             base_url=config.DEEPSEEK_BASE_URL,
             request_timeout=120,
+            extra_body={"thinking": {"type": "disabled"}},
         )
         self.tool_factory = ToolFactory(
             vector_db=self.vector_db,

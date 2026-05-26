@@ -10,10 +10,15 @@ from retrieval.fusion import reciprocal_rank_fusion
 from storage.postgres import ensure_schema, transaction
 
 
+_TSQUERY_PUNCTUATION = set("!\"#$%&'()*+,-./:;<=>?@[\\]^`{|}~")
+
 def _make_ts_query(text: str) -> str:
     import jieba
 
-    tokens = [token.strip() for token in jieba.cut(text or "") if token.strip()]
+    tokens = [
+        token.strip() for token in jieba.cut(text or "")
+        if token.strip() and token.strip() not in _TSQUERY_PUNCTUATION
+    ]
     if not tokens:
         return str(text or "").strip().replace(" ", " & ")
     return " & ".join(tokens)

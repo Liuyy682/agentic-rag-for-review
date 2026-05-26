@@ -18,6 +18,8 @@ PARENT_QUERY_MARKERS = {
     "effect", "impact", "role", "function", "interact", "interplay",
     "为什么", "为何", "如何", "怎么", "比较", "区别", "差异", "联系", "关系",
     "机制", "过程", "流程", "步骤", "解释", "说明", "总结", "概括", "原因", "影响", "作用",
+    "讲讲", "内容", "讲了什么", "介绍", "谈谈", "概述", "梳理", "归纳", "阐述", "论述",
+    "包含", "覆盖", "包括", "组成", "结构", "框架",
 }
 
 FACT_QUERY_MARKERS = {
@@ -293,7 +295,7 @@ class RetrievalPipeline:
         max_same_parent_hits = max(parent_counts.values(), default=0)
         min_hits = getattr(config, "RETRIEVAL_PARENT_EXPAND_MIN_HITS", 2)
         if max_same_parent_hits >= min_hits:
-            return "neighbor", "multiple_child_hits_same_parent"
+            return "parent", "multiple_child_hits_same_parent"
         if self._query_prefers_child(query):
             return "child", "fact_query"
         return "neighbor", "default_neighbor_context"
