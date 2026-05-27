@@ -3,11 +3,13 @@ from __future__ import annotations
 import logging
 import time
 from copy import deepcopy
+from pathlib import Path
 from typing import Iterable
 
 import torch
 from langchain_core.documents import Document
 from sentence_transformers import CrossEncoder
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 import config
 
@@ -59,12 +61,24 @@ class CrossEncoderReranker:
         self.device = resolve_device(device)
         self.batch_size = batch_size
         self.max_length = max_length
-        self.model = CrossEncoder(
-            model_name,
-            device=self.device,
-            max_length=max_length,
-            local_files_only=config.RERANKER_LOCAL_FILES_ONLY,
+        use_transformers_loader = (
+            model_name.startswith("BAAI/bge-reranker")
+            and CrossEncoder.__module__.startswith("sentence_transformers")
         )
+        if use_transformers_loader:
+            self.model = _TransformersSequenceClassifier(
+                model_name=model_name,
+                device=self.device,
+                max_length=max_length,
+                local_files_only=config.RERANKER_LOCAL_FILES_ONLY,
+            )
+        else:
+            self.model = CrossEncoder(
+                model_name,
+                device=self.device,
+                max_length=max_length,
+                local_files_only=config.RERANKER_LOCAL_FILES_ONLY,
+            )
 
     def rerank(
         self,
@@ -112,6 +126,75 @@ class CrossEncoderReranker:
             top_scores,
         )
         return reranked_docs
+
+
+class _TransformersSequenceClassifier:
+    def __init__(
+        self,
+        model_name: str,
+        device: str,
+        max_length: int,
+        local_files_only: bool,
+    ) -> None:
+        self.device = device
+        self.max_length = max_length
+        model_path = _resolve_local_model_path(model_name) or model_name
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_path,
+            cache_dir=getattr(config, "HF_CACHE_DIR", None),
+            local_files_only=local_files_only,
+        )
+        self.model = AutoModelForSequenceClassification.from_pretrained(
+            model_path,
+            cache_dir=getattr(config, "HF_CACHE_DIR", None),
+            local_files_only=local_files_only,
+        )
+        self.model.to(device)
+        self.model.eval()
+
+    def predict(self, pairs, batch_size=None):
+        scores = []
+        batch_size = batch_size or 8
+        for start in range(0, len(pairs), batch_size):
+            batch = pairs[start: start + batch_size]
+            queries = [query for query, _ in batch]
+            passages = [passage for _, passage in batch]
+            encoded = self.tokenizer(
+                queries,
+                passages,
+                padding=True,
+                truncation=True,
+                max_length=self.max_length,
+                return_tensors="pt",
+            )
+            encoded = {key: value.to(self.device) for key, value in encoded.items()}
+            with torch.no_grad():
+                logits = self.model(**encoded).logits
+            if logits.shape[-1] == 1:
+                batch_scores = logits.squeeze(-1)
+            else:
+                batch_scores = logits[:, -1]
+            scores.extend(float(score) for score in batch_scores.detach().cpu())
+        return scores
+
+
+def _resolve_local_model_path(model_name: str) -> str | None:
+    cache_dir = Path(getattr(config, "HF_CACHE_DIR", "") or "")
+    if not cache_dir:
+        return None
+    model_cache = cache_dir / f"models--{model_name.replace('/', '--')}"
+    snapshots = model_cache / "snapshots"
+    if not snapshots.is_dir():
+        return None
+
+    ref_path = model_cache / "refs" / "main"
+    if ref_path.is_file():
+        snapshot = snapshots / ref_path.read_text(encoding="utf-8").strip()
+        if snapshot.is_dir():
+            return str(snapshot)
+
+    available = sorted(path for path in snapshots.iterdir() if path.is_dir())
+    return str(available[-1]) if available else None
 
 
 _reranker: CrossEncoderReranker | None = None

@@ -7,6 +7,7 @@ PROJECT_DIR = Path(__file__).resolve().parents[1] / "project"
 sys.path.insert(0, str(PROJECT_DIR))
 
 from langchain_core.documents import Document
+import config
 import retrieval.reranker as reranker_module
 from retrieval.reranker import CrossEncoderReranker, RerankerUnavailable, get_reranker
 
@@ -82,7 +83,7 @@ class TestCrossEncoderReranker(unittest.TestCase):
                 get_reranker()
 
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][0][0], "BAAI/bge-reranker-large")
+        self.assertEqual(calls[0][0][0], config.RERANKER_MODEL)
         self.assertTrue(calls[0][1]["local_files_only"])
 
 
