@@ -53,8 +53,8 @@ DATABASE_URL = os.environ.get(
 # --- Retrieval Fusion Configuration ---
 RETRIEVAL_FUSION_MODE = "rrf"
 # Options: "rrf", "dense", "sparse"
-DENSE_TOP_K = 50
-SPARSE_TOP_K = 50
+DENSE_TOP_K = 70
+SPARSE_TOP_K = 30
 RRF_TOP_K = 20
 RRF_K = 60
 RETRIEVAL_DEBUG = False
