@@ -55,6 +55,7 @@ def run_ragbench_local_rag_eval(
     retrieval_fusion_mode: str | None = None,
     reranker_enabled: bool | None = None,
     continue_on_error: bool = True,
+    source_contexts: str | None = None,
 ) -> Dict[str, Any]:
     if retrieval_fusion_mode:
         config.RETRIEVAL_FUSION_MODE = retrieval_fusion_mode
@@ -68,15 +69,15 @@ def run_ragbench_local_rag_eval(
 
     dataset_path = run_dir / f"ragbench_{subset}_{split}_{limit}_eval_questions.jsonl"
     source_contexts_path = run_dir / f"ragbench_{subset}_{split}_{limit}_source_contexts.jsonl"
-    import_result = import_ragbench(
+    rows, import_result = _load_ragbench_source_rows(
         subset=subset,
         split=split,
         limit=limit,
-        output_dataset=str(dataset_path),
-        output_contexts=str(source_contexts_path),
         offset=offset,
+        dataset_path=dataset_path,
+        source_contexts_path=source_contexts_path,
+        source_contexts=source_contexts,
     )
-    rows = _read_jsonl(source_contexts_path)
     questions = [_context_row_to_eval_question(row, index + 1) for index, row in enumerate(rows)]
 
     config.INDEX_STATE_DIR = str(run_dir / "index_state")
@@ -227,6 +228,8 @@ def run_ragbench_local_rag_eval(
             "answer_source": "agent_graph" if use_agent_graph and generate_answers else ("generated" if generate_answers else "reference"),
             "answer_model": resolved_answer_model,
             "use_agent_graph": use_agent_graph,
+            "offline_source_contexts": bool(import_result.get("offline_source_contexts", False)),
+            "source_contexts_input": import_result.get("source_contexts_input", ""),
         }
     )
     validation_warnings = [
@@ -305,6 +308,48 @@ def run_ragbench_local_rag_eval(
     write_validation_outputs(latest_dir, all_warnings, validity_summary)
     result["ragas_metrics"] = ragas_metrics
     return result
+
+
+def _load_ragbench_source_rows(
+    subset: str,
+    split: str,
+    limit: int,
+    offset: int,
+    dataset_path: str | Path,
+    source_contexts_path: str | Path,
+    source_contexts: str | Path | None = None,
+) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    if source_contexts:
+        source_path = Path(source_contexts)
+        rows = _read_jsonl(source_path)
+        selected_rows = rows[offset: offset + limit]
+        write_jsonl(source_contexts_path, selected_rows)
+        write_jsonl(
+            dataset_path,
+            [
+                _context_row_to_eval_question(row, index + 1).to_dict()
+                for index, row in enumerate(selected_rows)
+            ],
+        )
+        return selected_rows, {
+            "subset": subset,
+            "split": split,
+            "rows": len(selected_rows),
+            "output_dataset": str(dataset_path),
+            "output_contexts": str(source_contexts_path),
+            "source_contexts_input": str(source_path),
+            "offline_source_contexts": True,
+        }
+
+    import_result = import_ragbench(
+        subset=subset,
+        split=split,
+        limit=limit,
+        output_dataset=str(dataset_path),
+        output_contexts=str(source_contexts_path),
+        offset=offset,
+    )
+    return _read_jsonl(source_contexts_path), import_result
 
 
 def run_ragas_from_outputs(
@@ -614,6 +659,7 @@ def main() -> None:
     parser.add_argument("--use-reference-answer", action="store_true", help="Use RAGBench reference answers instead of generated answers.")
     parser.add_argument("--use-agent-graph", action="store_true", help="Generate answers through the agent subgraph, including self-evaluation and retry retrieval.")
     parser.add_argument("--answer-model", default=None)
+    parser.add_argument("--source-contexts", help="Local RAGBench source_contexts JSONL; skips online RAGBench import.")
     parser.add_argument("--ragas-input", help="Existing rag_outputs.jsonl to score without rebuilding the PostgreSQL index.")
     parser.add_argument("--ragas-timeout", type=int, default=180)
     parser.add_argument("--ragas-max-retries", type=int, default=2)
@@ -672,6 +718,7 @@ def main() -> None:
         retrieval_fusion_mode=args.retrieval_fusion_mode,
         reranker_enabled=args.reranker,
         continue_on_error=not args.fail_fast,
+        source_contexts=args.source_contexts,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

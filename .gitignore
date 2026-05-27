@@ -19,3 +19,5 @@ docs/
 notebooks/
 project/.env
 project/interview/
+project/evaluation/datasets/ragbench_*_eval_questions.jsonl
+project/evaluation/datasets/ragbench_*_source_contexts.jsonl

@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from evaluation.runners.ragbench_eval_runner import (
     score_ragbench_context_order,
     validate_reuse_existing_outputs,
 )
+from evaluation.runners.ragbench_local_rag_runner import _load_ragbench_source_rows
 
 
 class TestRagbenchEvaluationAccuracy(unittest.TestCase):
@@ -60,6 +62,41 @@ class TestRagbenchEvaluationAccuracy(unittest.TestCase):
 
         self.assertFalse(reusable)
         self.assertIn("reuse_existing_question_mismatch", {warning["code"] for warning in warnings})
+
+    def test_local_rag_runner_loads_offline_source_contexts(self):
+        source_row = {
+            "question_id": "ragbench_covidqa_test_1",
+            "subset": "covidqa",
+            "split": "test",
+            "ragbench_id": "1",
+            "question": "What is measured?",
+            "documents": ["doc one"],
+            "documents_sentences": [[["0a", "doc one"]]],
+            "reference_response": "A measurement.",
+            "all_relevant_sentence_keys": ["0a"],
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            source_path = tmp / "source_contexts.jsonl"
+            source_path.write_text(__import__("json").dumps(source_row) + "\n", encoding="utf-8")
+            output_dataset = tmp / "eval_questions.jsonl"
+            output_contexts = tmp / "copied_contexts.jsonl"
+
+            rows, import_result = _load_ragbench_source_rows(
+                subset="covidqa",
+                split="test",
+                limit=1,
+                offset=0,
+                dataset_path=output_dataset,
+                source_contexts_path=output_contexts,
+                source_contexts=source_path,
+            )
+
+            self.assertEqual(rows, [source_row])
+            self.assertTrue(import_result["offline_source_contexts"])
+            self.assertEqual(import_result["rows"], 1)
+            self.assertTrue(output_dataset.exists())
+            self.assertTrue(output_contexts.exists())
 
 
 if __name__ == "__main__":
