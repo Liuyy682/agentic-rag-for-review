@@ -218,7 +218,8 @@ class ChatInterface:
         return ""
 
     def chat(self, message, history, course_name=None, session_id=None):
-        """Generator that streams chat message dicts."""
+        """Generator that streams chat message dicts. Handles both initial
+        messages and clarification-resume when the graph is interrupted."""
         if not self.rag_system.agent_graph:
             yield "⚠️ System not initialized!"
             return
@@ -231,20 +232,31 @@ class ChatInterface:
 
             session_id    = session_id or self.rag_system.thread_id
             user_message  = message.strip()
-            memory        = self._load_conversation_memory(session_id)
             config        = self.rag_system.get_config(thread_id=session_id)
+            graph         = self.rag_system.agent_graph
 
-            try:
+            snapshot = graph.get_state(config)
+            is_resuming = bool(snapshot and snapshot.next)
+
+            if is_resuming:
+                graph.update_state(
+                    config,
+                    {"messages": [HumanMessage(content=user_message)]},
+                )
+                stream_input = None
+            else:
+                memory = self._load_conversation_memory(session_id)
                 stream_input = {
                     "messages": [HumanMessage(content=user_message)],
                     "conversation_memory": memory,
                 }
 
-                response_messages  = []
-                active_tool_calls  = {}
-                system_node_buffer = {}
+            response_messages  = []
+            active_tool_calls  = {}
+            system_node_buffer = {}
 
-                for chunk, metadata in self.rag_system.agent_graph.stream(stream_input, config=config, stream_mode="messages"):
+            try:
+                for chunk, metadata in graph.stream(stream_input, config=config, stream_mode="messages"):
                     node = metadata.get("langgraph_node", "")
 
                     if node in SYSTEM_NODES and isinstance(chunk, AIMessageChunk) and chunk.content:
@@ -260,6 +272,11 @@ class ChatInterface:
                         self._handle_llm_token(chunk, node, response_messages)
 
                     yield response_messages
+
+                final_snapshot = graph.get_state(config)
+                if final_snapshot and final_snapshot.next:
+                    yield response_messages
+                    return
 
                 final_response = self._extract_final_response(response_messages)
                 if final_response:

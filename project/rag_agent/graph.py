@@ -53,13 +53,16 @@ def create_agent_graph(llm, tools_list):
     graph_builder.add_edge("summarize_history", "recognize_intent")
     graph_builder.add_conditional_edges("recognize_intent", route_after_intent)
     graph_builder.add_conditional_edges("rewrite_query", route_after_rewrite)
-    graph_builder.add_edge("request_clarification", END)
+    graph_builder.add_edge("request_clarification", "recognize_intent")
     graph_builder.add_edge("chitchat_response", END)
     graph_builder.add_conditional_edges("plan_rag_tasks", route_after_task_planning)
     graph_builder.add_edge(["task_executor"], "aggregate_answers")
     graph_builder.add_edge("aggregate_answers", END)
 
-    agent_graph = graph_builder.compile(checkpointer=checkpointer)
+    agent_graph = graph_builder.compile(
+        checkpointer=checkpointer,
+        interrupt_before=["request_clarification"],
+    )
 
     print("✓ Agent graph compiled successfully.")
     return agent_graph

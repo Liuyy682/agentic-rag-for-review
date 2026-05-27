@@ -71,7 +71,26 @@ def recognize_intent(state: State, llm):
     last_message = state["messages"][-1]
     conversation_context = _conversation_context(state)
 
-    context_section = (f"{conversation_context}\n\n" if conversation_context else "") + f"User Query:\n{last_message.content}\n"
+    is_clarification_followup = (
+        not state.get("questionIsClear", True)
+        and bool(state.get("clarification_needed", "").strip())
+    )
+
+    context_parts = []
+    if conversation_context:
+        context_parts.append(conversation_context)
+
+    if is_clarification_followup:
+        original = state.get("originalQuery", "")
+        clarification_q = state.get("clarification_needed", "")
+        context_parts.append(
+            f'The assistant asked for clarification: "{clarification_q}"\n'
+            f'The user now responds with additional context. Combine the original question below with the user\'s clarification to determine the full intent.\n'
+            f'Original user question: "{original}"'
+        )
+
+    context_section = "\n\n".join(context_parts) + "\n\n" if context_parts else ""
+    context_section += f"User Query:\n{last_message.content}\n"
 
     response_message = llm.with_config(temperature=0.1).invoke([SystemMessage(content=get_intent_recognition_prompt()), HumanMessage(content=context_section)])
     response = _parse_intent_analysis(str(response_message.content), last_message.content)
@@ -82,8 +101,9 @@ def recognize_intent(state: State, llm):
         return {
             "questionIsClear": True,
             "intent_type": intent_type,
-            "originalQuery": last_message.content,
+            "originalQuery": state.get("originalQuery") or last_message.content if is_clarification_followup else last_message.content,
             "normalized_query": response.normalized_query,
+            "clarification_needed": "",
             "task_plan": [],
             "task_results": [{"__reset__": True}],
             "agent_answers": [{"__reset__": True}],
@@ -93,8 +113,9 @@ def recognize_intent(state: State, llm):
         return {
             "questionIsClear": True,
             "intent_type": "chitchat",
-            "originalQuery": last_message.content,
+            "originalQuery": state.get("originalQuery") or last_message.content if is_clarification_followup else last_message.content,
             "normalized_query": response.normalized_query or last_message.content,
+            "clarification_needed": "",
             "task_plan": [],
             "task_results": [{"__reset__": True}],
             "agent_answers": [{"__reset__": True}],
