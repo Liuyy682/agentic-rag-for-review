@@ -1,622 +1,275 @@
-# Agentic RAG System Documentation
+# Agentic RAG Developer Notes
 
-An **Agentic Retrieval-Augmented Generation (RAG)** system built with **LangGraph**, featuring **parent–child chunking**, **hybrid dense + sparse retrieval**, and **multi-LLM provider support**.
+This project is an Agentic RAG system for local course material and document question answering. The current main application is a FastAPI/Uvicorn service started by `python project/app.py`; it serves the static browser UI, internal `/api/*` routes, and Server-Sent Events chat streaming.
 
+## Overview
 
-## Table of Contents
+Current capabilities:
 
-[Quick Start](#quick-start) | [Architecture Overview](#architecture-overview) | [Project Structure](#project-structure) | [Configuration Guide](#configuration-guide) | [Common Customizations](#common-customizations) | [Observability](#observability) | [Advanced Topics](#advanced-topics) | [Troubleshooting](#troubleshooting)
-
----
+- Upload PDF, Markdown, Word, and PowerPoint files from the browser UI.
+- Convert documents to Markdown, clean repeated headers/footers, split into parent and child chunks, and index them.
+- Store parent chunks, child chunks, metadata, dense vectors, and sparse retrieval fields in PostgreSQL + pgvector.
+- Retrieve with dense vector search, PostgreSQL full-text search, RRF fusion, and optional cross-encoder reranking.
+- Select child, neighboring child, or full parent context according to query shape and retrieval hits.
+- Use LangGraph to orchestrate history summarization, intent recognition, query rewriting, clarification, task planning, retrieval, answer evaluation, fallback answers, and aggregation.
+- Scope chat to a course, manage courses/sections, and persist lightweight session memory in SQLite.
+- Run RAGBench, RAGAS, local retrieval, and chunking ablation evaluation scripts under `project/evaluation`.
 
 ## Quick Start
 
-### Installation
-
-Install all required dependencies:
+Install dependencies:
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Running the Application
+Start PostgreSQL with pgvector:
 
-Start the Gradio interface locally:
+```bash
+docker compose up -d postgres
+```
+
+Create configuration:
+
+```bash
+cp project/.env.example project/.env
+```
+
+Set at least:
+
+```env
+DEEPSEEK_API_KEY=your_deepseek_api_key
+DEEPSEEK_MODEL=deepseek-chat
+```
+
+Start the application:
 
 ```bash
 python project/app.py
 ```
 
-The application will be available at `http://localhost:7860` (default Gradio port).
+Open:
 
-### Prerequisites
-
-- Python 3.11+
-- Ollama (local) or API keys for OpenAI, Anthropic, or Google
-
----
-
-## Architecture Overview
-
-This system implements an advanced RAG pipeline with the following key features:
-
-- **Parent-Child Chunking**: Documents are split into small child chunks (for precise retrieval) linked to larger parent chunks (for rich context)
-- **Hybrid Search**: Combines dense pgvector search and PostgreSQL full-text retrieval with `jieba` tokenization
-- **LangGraph Agent**: Orchestrates query rewriting, retrieval, and response generation
-- **Multi-Provider Support**: Seamlessly switch between Ollama, OpenAI GPT, Google Gemini, and Anthropic Claude
-- **Storage**: Uses PostgreSQL + pgvector for child vectors, sparse fields, and parent chunks
-
-### Data Flow
-
-```
-PDF → Markdown Conversion → Parent/Child Chunking → Vector Indexing → Agent Retrieval → LLM Response
+```text
+http://localhost:7860
 ```
 
----
+Configuration is loaded from the repository root `.env` first, then from `project/.env` with override behavior.
 
-## Project Structure
+## Architecture
 
-### Entry Point & Configuration
+```text
+Browser static UI
+-> FastAPI /api routes
+-> RagApplication
+-> RAGSystem
+-> LangGraph agent graph
+-> rag_research tool
+-> RetrievalPipeline
+-> PostgreSQL + pgvector
+```
 
-| File | Purpose |
-|------|---------|
-| `project/app.py` | Application entry point, launches Gradio UI |
-| `project/config.py` | **Central configuration hub** - edit this for provider/model/chunking changes |
-| `project/Dockerfile` | Dockerfile with Ollama for local deployment |
+Important paths:
 
-### Application & Chat
+- `project/app.py`: main entrypoint; starts Uvicorn on port `7860`.
+- `project/server.py`: FastAPI app; serves `/`, `/static`, and `/api`.
+- `project/static/`: current browser UI.
+- `project/api/`: document, course, session, task, and streaming chat routes.
+- `project/application/rag_application.py`: wires the RAG system, document manager, and chat interface.
+- `project/core/rag_system.py`: initializes storage, `ChatOpenAI`, LangGraph, and retrieval tools.
+- `project/ingestion/`: conversion, Markdown cleaning, chunking, index manifest, file integrity, and course structure.
+- `project/storage/`: PostgreSQL connection handling, pgvector child chunk store, and parent chunk store.
+- `project/retrieval/`: RRF fusion, reranking, source filtering, and context policy selection.
+- `project/rag_agent/`: LangGraph state, nodes, edges, prompts, schemas, and tool factory.
+- `project/evaluation/`: datasets, metrics, validation, reports, and evaluation runners.
 
-| File | Purpose |
-|------|---------|
-| `project/application/rag_application.py` | Wires the RAG system, document manager, and chat interface |
-| `project/core/rag_system.py` | System bootstrap - creates managers and compiles LangGraph agent |
-| `project/chat/chat_interface.py` | Thin wrapper for agent graph interaction |
-| `project/observability/langfuse.py` | Optional Langfuse tracing callback lifecycle |
+`project/ui/gradio_app.py` is a legacy or alternate Gradio UI module. The current `python project/app.py` path does not mount it.
 
-### Document Ingestion
+## Configuration
 
-| File | Purpose |
-|------|---------|
-| `project/ingestion/document_manager.py` | Document ingestion pipeline (convert, chunk, index) |
-| `project/ingestion/conversion.py` | MarkItDown document conversion and context token estimation |
-| `project/ingestion/cleaning.py` | Markdown page parsing and cleanup |
-| `project/ingestion/chunking.py` | Parent/child splitting logic with cleaning and merging rules |
-| `project/ingestion/image_describer.py` | Legacy local VLM image captioning for exported PDF images |
-| `project/ingestion/index_manifest.py` | Document indexing manifest |
+The primary runtime settings are in `project/config.py`.
 
-### Storage & Retrieval
+### LLM
 
-| File | Purpose |
-|------|---------|
-| `project/storage/postgres.py` | PostgreSQL connection pool and idempotent schema initialization |
-| `project/storage/pg_vector_store.py` | pgvector-backed child chunk indexing and retrieval |
-| `project/storage/pg_parent_store.py` | PostgreSQL parent chunk storage |
-| `project/retrieval/pipeline.py` | Retrieval orchestration and parent expansion |
-| `project/retrieval/fusion.py` | Reciprocal rank fusion utilities |
-| `project/retrieval/reranker.py` | Cross-encoder reranking |
+The current application uses `langchain_openai.ChatOpenAI` with DeepSeek/OpenAI-compatible settings:
 
-### RAG Agent (LangGraph)
+```env
+DEEPSEEK_API_KEY=your_api_key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-chat
+```
 
-| File | Purpose |
-|------|---------|
-| `project/rag_agent/graph.py` | Graph builder and compilation logic |
-| `project/rag_agent/graph_state.py` | Shared and per-agent graph state definitions and answer accumulation/reset logic|
-| `project/rag_agent/nodes.py` | Node implementations (summarize, rewrite, agent execution, aggregate) |
-| `project/rag_agent/edges.py` | Conditional edge routing logic (e.g., routing based on query clarity) |
-| `project/rag_agent/tools.py` | Retrieval tools (`search_child_chunks`, `retrieve_parent_chunks`) |
-| `project/rag_agent/prompts.py` | System prompts for agent behavior |
-| `project/rag_agent/schemas.py` | Structured output schemas (Pydantic models) |
+`project/core/rag_system.py` requires `DEEPSEEK_API_KEY` before the RAG app can start.
 
-### User Interface
+### Database
 
-| File | Purpose |
-|------|---------|
-| `project/ui/css.py` | Custom CSS styling for the Gradio interface |
-| `project/ui/gradio_app.py` | Gradio UI implementation with document upload and chat |
+Default database URL:
 
----
+```text
+postgresql://agentic_rag:dev_only@localhost:5432/agentic_rag
+```
 
-## Configuration Guide
+Override with:
 
-All primary settings are in `project/config.py`. Key parameters:
+```env
+DATABASE_URL=postgresql://user:password@host:5432/database
+```
 
-### Directory Configuration
+The app initializes the minimal runtime schema, including the `vector` extension, parent chunks, and child chunks.
+
+### Retrieval and Chunking
+
+Current defaults:
 
 ```python
-MARKDOWN_DIR = "runtime/markdown_docs"        # Storage for converted Markdown files
-INDEX_STATE_DIR = "runtime/index_state"       # JSON manifests and course state
-```
-
-### PostgreSQL Configuration
-
-```python
-DATABASE_URL = "postgresql://agentic_rag:dev_only@localhost:5432/agentic_rag"
-SPARSE_RETRIEVAL_BACKEND = "postgres_full_text_jieba"
-```
-
-### Model Configuration
-
-```python
-# Default: single model configuration
 DENSE_MODEL = "BAAI/bge-base-zh-v1.5"
 DENSE_EMBEDDING_DIMENSION = 768
 RERANKER_MODEL = "BAAI/bge-reranker-base"
-SPARSE_RETRIEVAL_BACKEND = "postgres_full_text_jieba"
-LLM_MODEL = "qwen3:4b-instruct-2507-q4_K_M"
-LLM_TEMPERATURE = 0  # 0 = deterministic, 1 = creative
-```
-
-### Agent Configuration
-```python
-# Hard limits to prevent infinite loops
-MAX_TOOL_CALLS = 8       # Maximum tool calls per agent run
-MAX_ITERATIONS = 10      # Maximum agent loop iterations
-GRAPH_RECURSION_LIMIT = 50 # Maximum number of steps before hitting a stop condition
-
-# Context compression thresholds
-BASE_TOKEN_THRESHOLD = 2000     # Initial token threshold for compression
-TOKEN_GROWTH_FACTOR = 0.9       # Multiplier applied after each compression
-```
-
-### Text Splitter Configuration
-
-```python
-CHILD_CHUNK_SIZE = 500              # Size of chunks used for retrieval
-CHILD_CHUNK_OVERLAP = 100           # Overlap between chunks (prevents context loss)
-MIN_PARENT_SIZE = 2000              # Minimum parent chunk size
-MAX_PARENT_SIZE = 4000             # Maximum parent chunk size
-
-# Markdown header splitting strategy
-HEADERS_TO_SPLIT_ON = [
-    ("#", "H1"),
-    ("##", "H2"),
-    ("###", "H3")
-]
-```
-
-### Legacy Multimodal PDF Ingestion
-
-```python
-DOCUMENT_IMAGE_DIR = "document_images"      # Exported PDF picture regions
-PDF_EXTRACT_IMAGES = True                   # Store images during PDF -> Markdown conversion
-PDF_IMAGE_DPI = 150
-PDF_IMAGE_FORMAT = "png"
-
-VLM_IMAGE_CAPTION_ENABLED = False           # Enable after starting a local VLM server
-LOCAL_VLM_BASE_URL = "http://localhost:8000/v1"
-LOCAL_VLM_API_KEY = "EMPTY"
-LOCAL_VLM_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
-```
-
-The current MarkItDown ingestion path does not use these legacy PDF image extraction settings. Image and embedded media handling should be configured through MarkItDown-specific capabilities in future work.
-
-### Langfuse Observability (Optional)
-
-```python
-LANGFUSE_ENABLED = False               # Set to True via LANGFUSE_ENABLED env var
-LANGFUSE_PUBLIC_KEY = ""               # From your Langfuse project settings
-LANGFUSE_SECRET_KEY = ""               # From your Langfuse project settings
-LANGFUSE_BASE_URL = "http://localhost:3000"  # Langfuse Cloud or self-hosted URL
-```
-
----
-
-## Common Customizations
-
-### 1. Switching LLM Provider (Single Provider)
-
-> **Performance Note:** LLMs with 7B+ parameters typically offer superior reasoning, context comprehension, and response quality compared to smaller models. This applies to both proprietary and open-source models, as long as they **support native tool/function calling,** which is required for agentic RAG workflows.
-
-If you want to permanently switch from one provider to another (e.g., Ollama → Google Gemini), follow this steps:
-
-**Step 1:** Install the provider's SDK
-
-```bash
-pip install langchain-google-genai
-```
-
-**Step 2:** Set environment variable
-
-```bash
-export GOOGLE_API_KEY="your-google-key"
-```
-
-**Step 3:** Update `project/config.py`
-
-```python
-LLM_MODEL = "gemini-2.5-pro"
-LLM_TEMPERATURE = 0
-```
-
-**Step 4:** Modify `project/core/rag_system.py`
-
-Replace:
-
-```python
-llm = ChatOllama(model=config.LLM_MODEL, temperature=config.LLM_TEMPERATURE)
-```
-
-With:
-
-```python
-from langchain_google_genai import ChatGoogleGenerativeAI
-
-llm = ChatGoogleGenerativeAI(model=config.LLM_MODEL, temperature=config.LLM_TEMPERATURE)
-```
-
-### 2. Multi-Provider Configuration
-
-This approach allows you to maintain multiple provider configurations and switch between them easily.
-
-**Step 1:** Install required SDKs
-
-```bash
-pip install langchain-openai langchain-anthropic langchain-google-genai
-```
-
-**Step 2:** Set environment variables
-
-```bash
-export OPENAI_API_KEY="your-openai-key"
-export ANTHROPIC_API_KEY="your-anthropic-key"
-export GOOGLE_API_KEY="your-google-key"
-```
-
-**Step 3:** Update `project/config.py` with multi-provider configuration
-
-```python
-# --- Multi-Provider LLM Configuration ---
-LLM_CONFIGS = {
-    "ollama": {
-        "model": "ministral-3:14b-instruct-2512-q4_K_M",
-        "url":"http://localhost:11434",
-        "temperature": 0
-    },
-    "openai": {
-        "model": "gpt-5.2",
-        "temperature": 0
-    },
-    "anthropic": {
-        "model": "claude-sonnet-4-6",
-        "temperature": 0
-    },
-    "google": {
-        "model": "gemini-2.5-flash",
-        "temperature": 0
-    }
-}
-
-# Switch providers by changing this single line
-ACTIVE_LLM_CONFIG = "ollama"
-```
-
-**Step 4:** Modify `project/core/rag_system.py` in the `initialize()` method
-
-Replace the existing LLM initialization with:
-
-```python
-def initialize(self):
-    # Load active configuration
-    active_config = config.LLM_CONFIGS[config.ACTIVE_LLM_CONFIG]
-    model = active_config["model"]
-    temperature = active_config["temperature"]
-    
-    if config.ACTIVE_LLM_CONFIG == "ollama":
-        from langchain_ollama import ChatOllama
-        llm = ChatOllama(model=model, temperature=temperature, base_url=active_config["url"])
-        
-    elif config.ACTIVE_LLM_CONFIG == "openai":
-        from langchain_openai import ChatOpenAI
-        llm = ChatOpenAI(model=model, temperature=temperature)
-        
-    elif config.ACTIVE_LLM_CONFIG == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-        llm = ChatAnthropic(model=model, temperature=temperature)
-        
-    elif config.ACTIVE_LLM_CONFIG == "google":
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        llm = ChatGoogleGenerativeAI(model=model, temperature=temperature)
-        
-    else:
-        raise ValueError(f"Unsupported LLM provider: {config.ACTIVE_LLM_CONFIG}")
-    
-    # Continue with tool and graph initialization
-    tools = ToolFactory(vector_db=self.vector_db, parent_store_manager=self.parent_store).create_tools()
-    self.agent_graph = create_agent_graph(llm, tools)
-```
-
-**Switching Providers:** Simply change `ACTIVE_LLM_CONFIG` in `config.py`:
-
-```python
-ACTIVE_LLM_CONFIG = "google"  # Switch to Gemini Pro
-# ACTIVE_LLM_CONFIG = "anthropic"  # Or Claude Sonnet
-# ACTIVE_LLM_CONFIG = "openai"  # Or GPT-4o
-```
-
----
-
-**Provider Reference Table:**
-
-| Provider | Environment Variable | Import Statement | Example Models |
-|----------|---------------------|------------------|----------------|
-| OpenAI | `OPENAI_API_KEY` | `from langchain_openai import ChatOpenAI` | `gpt-5.2`, `ggpt-5-mini` |
-| Anthropic | `ANTHROPIC_API_KEY` | `from langchain_anthropic import ChatAnthropic` | `claude-opus-4-6`, `claude-sonnet-4-6` |
-| Google | `GOOGLE_API_KEY` | `from langchain_google_genai import ChatGoogleGenerativeAI` | `gemini-2.5-pro`, `gemini-2.5-flash` |
-| Ollama | None (local) | `from langchain_ollama import ChatOllama` | `qwen3:4b-instruct-2507-q4_K_M`, `ministral-3:8b-instruct-2512-q4_K_M`, `llama3.1:8b-instruct-q6_K` |
-
----
-
-### 3. Changing Embedding Models
-
-**Why change?** Trade-offs between speed, cost, and quality.
-
-**Step 1:** Update `project/config.py`
-
-```python
-# Current Chinese retrieval model
-DENSE_MODEL = "BAAI/bge-base-zh-v1.5"
-DENSE_EMBEDDING_DIMENSION = 768
-DENSE_QUERY_INSTRUCTION = "为这个句子生成表示以用于检索相关文章："
-DENSE_NORMALIZE_EMBEDDINGS = True
-
-# Current Chinese reranker
-RERANKER_MODEL = "BAAI/bge-reranker-base"
-
-SPARSE_RETRIEVAL_BACKEND = "postgres_full_text_jieba"
-```
-
-If direct Hugging Face access is unstable, set the mirror before starting the app:
-
-```bash
-export HF_ENDPOINT=https://hf-mirror.com
-```
-
-**Step 2:** Rebuild the PostgreSQL data volume and re-index your documents if the embedding dimension changes.
-
-The app creates tables automatically, but an existing `child_chunks.embedding` column must match `DENSE_EMBEDDING_DIMENSION`. If it does not, rebuild the database volume and upload documents again.
-
-**Popular Embedding Models:**
-
-| Model | Context Size | Vector Dimension | Speed | Quality | Use Case |
-|-------|--------------|------------------|-------|---------|----------|
-| all-MiniLM-L6-v2 | 256 tokens | 384 | Fast | Good | General purpose, quick semantic similarity |
-| all-mpnet-base-v2 | 512 tokens | 768 | Medium | Excellent | High-accuracy semantic search |
-| BAAI/bge-large-zh-v1.5 | 512 tokens | 1024 | Slow | Excellent | Chinese retrieval on GPU |
-| BAAI/bge-base-zh-v1.5 | 512 tokens | 768 | Medium | Very Good | Chinese retrieval with existing 768-dim stores |
-| google/embeddinggemma-300m | 2048 tokens | 768 | Fast | Very Good | Lightweight, efficient multilingual retrieval |
-| Qwen/Qwen3-Embedding-8B | 32768 tokens | 4096 | Slow | Excellent / SOTA | Large-scale multilingual embeddings, long-context RAG |
-
----
-
-### 4. Adjusting Chunking Strategy
-
-**Why adjust?** Balance between retrieval precision and context richness.
-
-> **💡 Validation Tool:** To avoid trial-and-error, you can use 🐿️[**Chunky**](https://github.com/GiovanniPasq/chunky) to visually inspect how different strategies affect your documents.
-
-**Step 1:** Update chunk sizes in `project/config.py`
-
-```python
-# For short, factual queries (e.g., technical documentation)
+RETRIEVAL_FUSION_MODE = "rrf"
+DENSE_TOP_K = 70
+SPARSE_TOP_K = 30
+RRF_TOP_K = 20
+RRF_K = 60
+RERANKER_FINAL_TOP_K = 3
 CHILD_CHUNK_SIZE = 300
 CHILD_CHUNK_OVERLAP = 60
-MIN_PARENT_SIZE = 1500
-MAX_PARENT_SIZE = 8000
-
-# For narrative or contextual queries (e.g., legal documents)
-# CHILD_CHUNK_SIZE = 800
-# CHILD_CHUNK_OVERLAP = 150
-# MIN_PARENT_SIZE = 3000
-# MAX_PARENT_SIZE = 15000
+MIN_PARENT_SIZE = 2000
+MAX_PARENT_SIZE = 4000
 ```
 
-**Step 2 (Optional):** Replace the splitter in `project/ingestion/chunking.py`
+Supported document extensions default to:
 
-**Default (Character-based):**
-```python
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-self.__child_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=config.CHILD_CHUNK_SIZE,
-    chunk_overlap=config.CHILD_CHUNK_OVERLAP
-)
+```text
+.pdf,.md,.docx,.pptx
 ```
 
-**Alternative (Sentence-aware):**
-```python
-from langchain_text_splitters import SentenceTransformersTokenTextSplitter
+Context policy can be controlled with:
 
-self.__child_splitter = SentenceTransformersTokenTextSplitter(
-    chunk_size=config.CHILD_CHUNK_SIZE,
-    chunk_overlap=config.CHILD_CHUNK_OVERLAP
-)
+```env
+RETRIEVAL_CONTEXT_POLICY=adaptive
+RETRIEVAL_NEIGHBOR_WINDOW=1
+RETRIEVAL_PARENT_EXPAND_MIN_HITS=2
 ```
 
-**Step 3:** Re-run ingestion pipeline
+Valid context policies are `adaptive`, `child`, `neighbor`, and `parent`.
 
-Upload documents again through the Gradio interface to apply new chunking.
+### Hugging Face Cache
 
-**Chunking Guidelines:**
+The app sets Hugging Face cache paths under `.cache/huggingface` by default. Useful environment options:
 
-> ⚠️ **Disclaimer:** These are empirical guidelines. Optimal sizes depend on:
-> - **Child chunk** → embedding model's context window (e.g. 512 tokens for BAAI/bge-large-zh-v1.5): child size should not exceed it
-> - **Parent chunk** → generative model's context window (e.g. 8K, 32K, 128K tokens): parent must fit within the context sent to the LLM alongside the query
->
-> Always validate values empirically on your own corpus.
-
-| Document Type | Child Size | Parent Size | Reasoning |
-|---------------|-----------|-------------|-----------|
-| Technical Docs | 300-500 | 2000-4000 | Precise lookups, code snippets |
-| Legal Contracts | 600-1000 | 5000-15000 | Context-heavy, definitions |
-| Research Papers | 400-600 | 3000-8000 | Balance of precision and context |
-| FAQs / Knowledge Base | 200-400 | 1500-4000 | Short, focused answers |
-
----
-
-### 5. Agent Configuration
-
-Tune agent behavior in `project/config.py`:
-```python
-# Hard limits to prevent infinite loops
-MAX_TOOL_CALLS = 8       # Maximum tool calls per agent run
-MAX_ITERATIONS = 10      # Maximum agent loop iterations
-GRAPH_RECURSION_LIMIT = 50 # Maximum number of steps before hitting a stop condition
-
-# Context compression thresholds
-BASE_TOKEN_THRESHOLD = 2000     # Initial token threshold for compression
-TOKEN_GROWTH_FACTOR = 0.9       # Multiplier applied after each compression
+```env
+HF_ENDPOINT=https://hf-mirror.com
+HF_HUB_OFFLINE=0
+DENSE_LOCAL_FILES_ONLY=false
+RERANKER_LOCAL_FILES_ONLY=false
 ```
 
-| Parameter | Effect |
-|-----------|--------|
-| `MAX_TOOL_CALLS` | Increase for complex queries, decrease to speed up simple ones |
-| `MAX_ITERATIONS` | Controls how many reasoning loops the agent can run |
-| `GRAPH_RECURSION_LIMIT` | Increase for complex [graphs](https://docs.langchain.com/oss/python/langgraph/errors/GRAPH_RECURSION_LIMIT) |
-| `BASE_TOKEN_THRESHOLD` | Delay compression by increasing this value |
-| `TOKEN_GROWTH_FACTOR` | Lower values compress more aggressively |
+If the embedding dimension changes, rebuild the PostgreSQL volume and re-index documents.
 
----
+### Optional Features
 
-## Observability
+Langfuse tracing:
 
-Optional tracing with [Langfuse](https://langfuse.com) captures every LLM call, tool invocation, and graph transition  useful for debugging agent behavior, tracking costs, and evaluating retrieval quality.
+```env
+LANGFUSE_ENABLED=false
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASE_URL=http://localhost:3000
+```
 
-### Enabling Langfuse
+Legacy multimodal PDF image settings are present in `project/config.py` and `project/.env.example`, but the default MarkItDown conversion path is the primary document conversion flow.
 
-1. Sign up on [Langfuse Cloud](https://cloud.langfuse.com/), create an organization, then create a project and generate API keys from the project settings.
-2. Set environment variables (or copy `.env.example` to `.env`):
+## Internal HTTP API
+
+The browser UI uses these internal routes. They are documented for local development and are not promised as a stable external API.
+
+Documents and courses:
+
+- `POST /api/documents/upload`
+- `GET /api/documents/tasks/{task_id}`
+- `GET /api/documents/files`
+- `GET /api/documents/courses`
+- `POST /api/documents/clear`
+- `POST /api/documents/courses/rename`
+- `POST /api/documents/sections/rename`
+
+Sessions:
+
+- `GET /api/sessions`
+- `POST /api/sessions`
+- `DELETE /api/sessions/{session_id}`
+- `GET /api/sessions/{session_id}/turns`
+
+Chat:
+
+- `POST /api/chat`: streams `text/event-stream` events.
+- `POST /api/chat/clear`
+
+Upload tasks are tracked in memory and expire after the task cleanup window. Chat turns and session metadata are persisted in `runtime/session_memory.sqlite3`.
+
+## Runtime Data
+
+Runtime output is written under `runtime/`:
+
+- `markdown_docs`: converted Markdown.
+- `markdown_docs_cleaned`: cleaned Markdown.
+- `markdown_cleaning_logs` and `markdown_cleaning_diffs`: cleaning audit files.
+- `ingestion_logs`: per-document ingestion stage logs.
+- `index_state`: index manifest and course structure.
+- `document_images`: PDF image extraction output when enabled.
+- `session_memory.sqlite3`: chat session memory.
+- `evaluation_reports`: evaluation outputs.
+
+## Evaluation
+
+See `project/evaluation/README.md` for detailed evaluation modes and report validity rules.
+
+Oracle-context RAGBench generation example:
 
 ```bash
-export LANGFUSE_ENABLED=true
-export LANGFUSE_PUBLIC_KEY=pk-lf-...
-export LANGFUSE_SECRET_KEY=sk-lf-...
-export LANGFUSE_BASE_URL=https://cloud.langfuse.com   # or your self-hosted URL
+python project/evaluation/runners/ragbench_eval_runner.py \
+  --subset covidqa \
+  --split test \
+  --limit 50 \
+  --output-dir runtime/evaluation_reports/ragbench_covidqa_test_50 \
+  --ragas-max-workers 1 \
+  --ragas-batch-size 1
 ```
 
-4. Run the app normally. Traces appear in your [Langfuse dashboard](https://cloud.langfuse.com/).
+Local retrieval example:
 
-To disable tracing, set `LANGFUSE_ENABLED=false` or leave the variables unset. The application runs identically either way.
-
-For additional details on integrating Langfuse with LangChain or LangGraph, see the official [documentation](https://docs.langchain.com/oss/python/integrations/providers/langfuse).
-
-### What gets traced
-
-| Component | Traced operations |
-|-----------|-------------------|
-| Graph nodes | `summarize_history`, `rewrite_query`, `orchestrator`, `compress_context`, `fallback_response`, `aggregate_answers` |
-| Tools | `search_child_chunks`, `retrieve_parent_chunks` (arguments + results) |
-| Structured output | `QueryAnalysis` parsing in the rewrite step |
-| Subgraph fan-out | Parallel agent invocations via `Send()` |
-
-### Hosting options
-
-- **Langfuse Cloud** — sign up at [cloud.langfuse.com](https://cloud.langfuse.com), free up to 50K observations/month.
-- **Self-hosted** — MIT-licensed, deploy with Docker Compose. See the [official self-hosting docs](https://langfuse.com/self-hosting).
-
-For a detailed comparison of observability platforms (LangSmith, Arize Phoenix, AgentOps, Braintrust, Helicone) and the full self-hosting setup, see [`Observability_Guide.ipynb`](../Observability_Guide.ipynb).
-
----
-
-## Advanced Topics
-
-### Customizing the RAG Agent
-
-**Location:** `project/rag_agent/`
-
-**Add/Remove Nodes:** Edit `graph.py` and `nodes.py`
-
-Example: Adding a fact-checking node
-```python
-# In nodes.py
-def fact_check_node(state):
-    # Your fact-checking logic
-    return {"fact_checked": True}
-
-# In graph.py
-builder.add_node("fact_check", fact_check_node)
-builder.add_edge("retrieve", "fact_check")
-```
-
-**Modify Conditional Routing:** Edit `edges.py` to change graph flow logic
-
-Example from the system - routing based on query clarity:
-```python
-def route_after_rewrite(state: State) -> Literal["request_clarification", "agent"]:
-    """Routes to human input if question unclear, otherwise processes all rewritten queries"""
-    if not state.get("questionIsClear", False):
-        return "request_clarification"
-    else:
-        # Fan-out: send each rewritten question to parallel processing
-        return [
-            Send("agent", {"question": query, "question_index": idx, "messages": []})
-            for idx, query in enumerate(state["rewrittenQuestions"])
-        ]
-```
-
-This pattern allows the agent to either request clarification from the user or fan-out multiple query variations for parallel retrieval.
-
-**Modify Prompts:** Edit `prompts.py` to change agent behavior and response style
-
-**Add Custom Tools:** Extend `tools.py` with new retrieval strategies or external integrations
-
-### Storage Backend
-
-The runtime storage backend is PostgreSQL + pgvector. Direct SQL access lives in `project/storage/postgres.py`, child chunk retrieval in `project/storage/pg_vector_store.py`, and parent chunk storage in `project/storage/pg_parent_store.py`.
-
-### Extending the UI
-
-**Location:** `project/ui/gradio_app.py`
-
-Add runtime settings, admin panels, or analytics:
-```python
-with gr.Accordion("Advanced Settings", open=False):
-    provider_dropdown = gr.Dropdown(
-        choices=["openai", "anthropic", "google", "ollama"],
-        label="LLM Provider"
-    )
-```
-
-### Docker Deployment
-
-> ⚠️ **System Requirements**: At least 8GB of RAM allocated to Docker. The default Ollama model needs approximately 3.3GB to run.
-
-#### Build and Run
 ```bash
-# Build image
-docker build -t agentic-rag -f project/Dockerfile .
-
-# Run container
-docker run --name rag-assistant -p 7860:7860 agentic-rag
+python project/evaluation/runners/retrieval_eval_runner.py \
+  --dataset project/evaluation/datasets/eval_questions.jsonl \
+  --top-k 10 \
+  --output-dir runtime/evaluation_reports/local_retrieval
 ```
 
-**Optional: GPU acceleration** (NVIDIA only):
+Local RAGAS generation example:
+
 ```bash
-docker run --gpus all --name rag-assistant -p 7860:7860 agentic-rag
+python project/evaluation/runners/ragas_eval_runner.py \
+  --dataset project/evaluation/datasets/eval_questions.jsonl \
+  --top-k 10 \
+  --output-dir runtime/evaluation_reports/local_ragas
 ```
 
-**Common commands:**
+Use evaluation numbers only with their dataset, split, limit, evaluation type, and warning summary. An empty or placeholder gold dataset cannot support quality conclusions.
+
+## Docker Notes
+
+`docker-compose.yml` is the current path for starting PostgreSQL + pgvector.
+
+`project/Dockerfile` still contains a local model service startup path, but the current `RAGSystem` requires `DEEPSEEK_API_KEY` and uses `ChatOpenAI`. Treat that Dockerfile as a legacy deployment artifact unless it is updated together with the current LLM configuration.
+
+## Verification
+
+Minimum code sanity check:
+
 ```bash
-docker stop rag-assistant      # Stop
-docker start rag-assistant     # Restart
-docker logs -f rag-assistant   # View logs
-docker rm -f rag-assistant     # Remove
+python -m py_compile project/app.py project/server.py project/config.py
 ```
 
-> ⚠️ **Performance Note**: On Windows/Mac, Docker runs via a Linux VM which may slow down I/O operations like document indexing. LLM inference speed is largely unaffected. On Linux, performance is comparable to running locally.
-
-Once running, open `http://localhost:7860`.
-
----
-
-## Troubleshooting
-
-| Issue | Cause | Solution |
-|-------|-------|----------|
-| "Model not found" error | Incorrect model name for provider | Verify `LLM_MODEL` matches provider's API (e.g., `gpt-4o-mini` not `gpt4-mini`) |
-| Low-quality retrieval results | Poor embedding model or chunk configuration | Re-index documents after changing embeddings or adjust chunk sizes |
-| Slow response times | Large embedding model or high `top_k` value | Use a smaller embedding model (e.g., BAAI/bge-base-zh-v1.5) or reduce `top_k` in retrieval tools |
-| API rate limits exceeded | Too many requests to external provider | Add retry logic with exponential backoff or switch to local Ollama models |
-| Out of memory errors | Large document set or embedding model | Use smaller embeddings, reduce batch size, or enable GPU acceleration |
-| Empty retrieval results | No documents indexed or PostgreSQL data was rebuilt | Upload documents again and confirm PostgreSQL is running |
-| Import errors after provider switch | Missing SDK installation | Install required package: `pip install langchain-{provider}` |
-| Inconsistent answers across runs | High temperature setting | Set `LLM_TEMPERATURE = 0` in config for deterministic responses |
+For documentation-only changes, the full test suite is not required unless a referenced command or behavior is changed.

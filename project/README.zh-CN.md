@@ -1,634 +1,275 @@
-# Agentic RAG 系统文档
+# Agentic RAG 开发说明
 
-这是一个基于 **LangGraph** 构建的 **Agentic Retrieval-Augmented Generation（RAG）** 系统，具备 **父子分块（parent-child chunking）**、**稠密 + 稀疏混合检索（hybrid dense + sparse retrieval）** 和 **多 LLM 提供商支持**。
+这是一个面向课程资料和本地文档问答的 Agentic RAG 系统。当前主应用由 `python project/app.py` 启动 FastAPI/Uvicorn 服务，提供静态浏览器页面、内部 `/api/*` 路由和基于 Server-Sent Events 的流式聊天。
 
+## 概览
 
-## 目录
+当前能力：
 
-[快速开始](#快速开始) | [架构概览](#架构概览) | [项目结构](#项目结构) | [配置指南](#配置指南) | [常见定制](#常见定制) | [可观测性](#可观测性) | [高级主题](#高级主题) | [故障排查](#故障排查)
-
----
+- 在浏览器 UI 中上传 PDF、Markdown、Word、PowerPoint 文件。
+- 将文档转换为 Markdown，清理重复页眉页脚，切分为父块和子块，并写入索引。
+- 使用 PostgreSQL + pgvector 存储父块、子块、元数据、稠密向量和稀疏检索字段。
+- 通过稠密向量检索、PostgreSQL 全文检索、RRF 融合和 cross-encoder 重排召回上下文。
+- 根据问题类型和命中情况选择子块、邻近子块或完整父块作为回答上下文。
+- 使用 LangGraph 编排会话摘要、意图识别、查询改写、澄清、任务规划、检索、答案评估、降级回答和聚合。
+- 支持按课程范围聊天、课程/章节管理，以及 SQLite 轻量会话记忆。
+- 在 `project/evaluation` 下提供 RAGBench、RAGAS、本地检索评测和分块消融脚本。
 
 ## 快速开始
 
-### 安装
-
-安装所有必需依赖：
+安装依赖：
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 运行应用
+启动 PostgreSQL + pgvector：
 
-在本地启动 Gradio 界面：
+```bash
+docker compose up -d postgres
+```
+
+创建配置文件：
+
+```bash
+cp project/.env.example project/.env
+```
+
+至少配置：
+
+```env
+DEEPSEEK_API_KEY=your_deepseek_api_key
+DEEPSEEK_MODEL=deepseek-chat
+```
+
+启动应用：
 
 ```bash
 python project/app.py
 ```
 
-应用将在 `http://localhost:7860` 可用（Gradio 默认端口）。
+浏览器访问：
 
-### 前置条件
-
-- Python 3.11+
-- Ollama（本地）或 OpenAI、Anthropic、Google 的 API Key
-
----
-
-## 架构概览
-
-该系统实现了高级 RAG 流水线，核心特性如下：
-
-- **父子分块**：文档被拆分为小的子块（便于精准检索），并关联到更大的父块（提供更丰富上下文）
-- **混合检索**：结合 pgvector 稠密检索与 PostgreSQL 全文检索，并使用 `jieba` 分词
-- **LangGraph Agent**：编排查询改写、检索与回答生成
-- **多提供商支持**：可在 Ollama、OpenAI GPT、Google Gemini、Anthropic Claude 之间无缝切换
-- **存储**：使用 PostgreSQL + pgvector 存储子块向量、稀疏检索字段和父块内容
-
-### 数据流
-
-```
-PDF → Markdown 转换 → 父/子分块 → 向量索引 → Agent 检索 → LLM 回答
+```text
+http://localhost:7860
 ```
 
----
+配置加载顺序是先读取仓库根目录 `.env`，再读取 `project/.env`，并以 `project/.env` 覆盖同名配置。
 
-## 项目结构
+## 架构
 
-### 入口与配置
-
-| 文件 | 作用 |
-|------|------|
-| `project/app.py` | 应用入口，启动 Gradio UI |
-| `project/config.py` | **中心配置枢纽** - 模型/提供商/分块策略等优先在这里修改 |
-| `project/Dockerfile` | 集成 Ollama 的 Dockerfile（本地部署） |
-
-### 应用与聊天
-
-| 文件 | 作用 |
-|------|------|
-| `project/application/rag_application.py` | 组装 RAG 系统、文档管理器与聊天接口 |
-| `project/core/rag_system.py` | 系统引导：创建管理器并编译 LangGraph Agent |
-| `project/chat/chat_interface.py` | 与 Agent 图交互的轻量封装 |
-| `project/observability/langfuse.py` | 可选 Langfuse 追踪：回调处理器生命周期 |
-
-### 文档摄取
-
-| 文件 | 作用 |
-|------|------|
-| `project/ingestion/document_manager.py` | 文档摄取流水线（转换、分块、索引） |
-| `project/ingestion/conversion.py` | MarkItDown 文档转换以及上下文 token 估算 |
-| `project/ingestion/cleaning.py` | Markdown 页解析与清洗 |
-| `project/ingestion/chunking.py` | 父子分块逻辑，包含清洗与合并规则 |
-| `project/ingestion/image_describer.py` | 旧版 PDF 导出图片的本地 VLM 识别与说明 |
-| `project/ingestion/index_manifest.py` | 文档索引 manifest |
-
-### 存储与检索
-
-| 文件 | 作用 |
-|------|------|
-| `project/storage/postgres.py` | PostgreSQL 连接池与幂等 schema 初始化 |
-| `project/storage/pg_vector_store.py` | 基于 pgvector 的子块索引与检索 |
-| `project/storage/pg_parent_store.py` | PostgreSQL 父块存储 |
-| `project/retrieval/pipeline.py` | 检索编排与父块扩展 |
-| `project/retrieval/fusion.py` | RRF 融合工具 |
-| `project/retrieval/reranker.py` | Cross-encoder 重排 |
-
-### RAG Agent（LangGraph）
-
-| 文件 | 作用 |
-|------|------|
-| `project/rag_agent/graph.py` | 图构建与编译逻辑 |
-| `project/rag_agent/graph_state.py` | 全局/局部图状态定义，以及答案聚合/重置逻辑 |
-| `project/rag_agent/nodes.py` | 节点实现（总结、改写、Agent 执行、聚合） |
-| `project/rag_agent/edges.py` | 条件边路由逻辑（例如按问题清晰度路由） |
-| `project/rag_agent/tools.py` | 检索工具（`search_child_chunks`、`retrieve_parent_chunks`） |
-| `project/rag_agent/prompts.py` | Agent 行为的系统提示词 |
-| `project/rag_agent/schemas.py` | 结构化输出 Schema（Pydantic 模型） |
-
-### 用户界面
-
-| 文件 | 作用 |
-|------|------|
-| `project/ui/css.py` | Gradio 界面的自定义 CSS 样式 |
-| `project/ui/gradio_app.py` | Gradio UI 实现（文档上传 + 聊天） |
-
----
-
-## 配置指南
-
-所有主要设置都在 `project/config.py` 中。关键参数如下：
-
-### 目录配置
-
-```python
-MARKDOWN_DIR = "runtime/markdown_docs"        # 转换后的 Markdown 文件存储目录
-INDEX_STATE_DIR = "runtime/index_state"       # JSON manifest 与课程状态
+```text
+Browser static UI
+-> FastAPI /api routes
+-> RagApplication
+-> RAGSystem
+-> LangGraph agent graph
+-> rag_research tool
+-> RetrievalPipeline
+-> PostgreSQL + pgvector
 ```
 
-### PostgreSQL 配置
+主要路径：
 
-```python
-DATABASE_URL = "postgresql://agentic_rag:dev_only@localhost:5432/agentic_rag"
-SPARSE_RETRIEVAL_BACKEND = "postgres_full_text_jieba"
+- `project/app.py`：当前主入口，在 `7860` 端口启动 Uvicorn。
+- `project/server.py`：FastAPI 应用，提供 `/`、`/static` 和 `/api`。
+- `project/static/`：当前浏览器 UI。
+- `project/api/`：文档、课程、会话、任务和流式聊天接口。
+- `project/application/rag_application.py`：组装 RAG 系统、文档管理器和聊天接口。
+- `project/core/rag_system.py`：初始化存储、`ChatOpenAI`、LangGraph 和检索工具。
+- `project/ingestion/`：转换、Markdown 清洗、分块、索引 manifest、文件完整性检查和课程结构。
+- `project/storage/`：PostgreSQL 连接、pgvector 子块存储和父块存储。
+- `project/retrieval/`：RRF 融合、重排、来源过滤和上下文策略选择。
+- `project/rag_agent/`：LangGraph 状态、节点、边、提示词、schema 和工具工厂。
+- `project/evaluation/`：数据集、指标、校验、报告和评测 runner。
+
+`project/ui/gradio_app.py` 是旧版/备用 Gradio UI 模块；当前 `python project/app.py` 路径不会挂载它。
+
+## 配置
+
+主要运行配置在 `project/config.py`。
+
+### LLM
+
+当前应用使用 `langchain_openai.ChatOpenAI` 连接 DeepSeek/OpenAI-compatible API：
+
+```env
+DEEPSEEK_API_KEY=your_api_key
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-chat
 ```
 
-### 模型配置
+`project/core/rag_system.py` 会在启动 RAG 应用前检查 `DEEPSEEK_API_KEY`。
+
+### 数据库
+
+默认数据库地址：
+
+```text
+postgresql://agentic_rag:dev_only@localhost:5432/agentic_rag
+```
+
+可通过环境变量覆盖：
+
+```env
+DATABASE_URL=postgresql://user:password@host:5432/database
+```
+
+应用会初始化最小运行时 schema，包括 `vector` extension、父块表和子块表。
+
+### 检索与切分
+
+当前默认配置：
 
 ```python
 DENSE_MODEL = "BAAI/bge-base-zh-v1.5"
 DENSE_EMBEDDING_DIMENSION = 768
 RERANKER_MODEL = "BAAI/bge-reranker-base"
-SPARSE_RETRIEVAL_BACKEND = "postgres_full_text_jieba"
-LLM_PROVIDER = "ollama"  # "ollama" 或 "openai"
-OLLAMA_MODEL = "qwen3:4b-instruct-2507-q4_K_M"
-OPENAI_MODEL = "gpt-5.4-mini"
-LLM_MODEL = "qwen3:4b-instruct-2507-q4_K_M"
-LLM_TEMPERATURE = 0  # 0 = 更确定，1 = 更有创造性
-```
-
-如需使用 OpenAI API，请在启动应用前安装依赖并设置环境变量：
-
-```bash
-pip install -r requirements.txt
-export LLM_PROVIDER=openai
-export OPENAI_API_KEY="your-openai-key"
-export OPENAI_MODEL="gpt-5.4-mini"
-python project/app.py
-```
-
-### Agent 配置
-```python
-# 防止无限循环的硬限制
-MAX_TOOL_CALLS = 8       # 每次 Agent 运行的最大工具调用次数
-MAX_ITERATIONS = 10      # Agent 循环最大迭代次数
-GRAPH_RECURSION_LIMIT = 50 # 触发停止条件前的最大步骤数
-
-# 上下文压缩阈值
-BASE_TOKEN_THRESHOLD = 2000     # 初始压缩阈值
-TOKEN_GROWTH_FACTOR = 0.9       # 每次压缩后应用的乘数
-```
-
-### 文本切分器配置
-
-```python
-CHILD_CHUNK_SIZE = 500              # 用于检索的子块大小
-CHILD_CHUNK_OVERLAP = 100           # 子块重叠（防止上下文丢失）
-MIN_PARENT_SIZE = 2000              # 父块最小大小
-MAX_PARENT_SIZE = 4000             # 父块最大大小
-
-# Markdown 标题切分策略
-HEADERS_TO_SPLIT_ON = [
-    ("#", "H1"),
-    ("##", "H2"),
-    ("###", "H3")
-]
-```
-
-### 旧版多模态 PDF 摄取
-
-```python
-DOCUMENT_IMAGE_DIR = "document_images"      # PDF 图片导出目录
-PDF_EXTRACT_IMAGES = True                   # 旧版 PDF 转 Markdown 时保存图片
-PDF_IMAGE_DPI = 150
-PDF_IMAGE_FORMAT = "png"
-
-VLM_IMAGE_CAPTION_ENABLED = False           # 启动本地 VLM 服务后再开启
-LOCAL_VLM_BASE_URL = "http://localhost:8000/v1"
-LOCAL_VLM_API_KEY = "EMPTY"
-LOCAL_VLM_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
-```
-
-当前 MarkItDown 摄取链路不再使用这些旧版 PDF 图片提取配置。图片和嵌入媒体处理后续应通过 MarkItDown 相关能力单独配置。
-
-### Langfuse 可观测性（可选）
-
-```python
-LANGFUSE_ENABLED = False               # 可通过 LANGFUSE_ENABLED 环境变量设为 True
-LANGFUSE_PUBLIC_KEY = ""               # 来自你的 Langfuse 项目设置
-LANGFUSE_SECRET_KEY = ""               # 来自你的 Langfuse 项目设置
-LANGFUSE_BASE_URL = "http://localhost:3000"  # Langfuse Cloud 或自托管 URL
-```
-
----
-
-## 常见定制
-
-### 1. 切换 LLM 提供商（单提供商）
-
-> **性能说明：** 参数规模在 7B 以上的 LLM，通常在推理能力、上下文理解和回答质量上优于更小模型。无论是闭源还是开源模型，这一规律通常都成立，前提是模型 **支持原生 tool/function calling**，这是 agentic RAG 工作流所必需的。
-
-如果你想永久从一个提供商切换到另一个（例如 Ollama → Google Gemini），请按以下步骤操作：
-
-**步骤 1：** 安装对应提供商 SDK
-
-```bash
-pip install langchain-google-genai
-```
-
-**步骤 2：** 设置环境变量
-
-```bash
-export GOOGLE_API_KEY="your-google-key"
-```
-
-**步骤 3：** 更新 `project/config.py`
-
-```python
-LLM_MODEL = "gemini-2.5-pro"
-LLM_TEMPERATURE = 0
-```
-
-**步骤 4：** 修改 `project/core/rag_system.py`
-
-将：
-
-```python
-llm = ChatOllama(model=config.LLM_MODEL, temperature=config.LLM_TEMPERATURE)
-```
-
-替换为：
-
-```python
-from langchain_google_genai import ChatGoogleGenerativeAI
-
-llm = ChatGoogleGenerativeAI(model=config.LLM_MODEL, temperature=config.LLM_TEMPERATURE)
-```
-
-### 2. 多提供商配置
-
-这种方式允许你维护多套提供商配置，并轻松切换。
-
-**步骤 1：** 安装所需 SDK
-
-```bash
-pip install langchain-openai langchain-anthropic langchain-google-genai
-```
-
-**步骤 2：** 设置环境变量
-
-```bash
-export OPENAI_API_KEY="your-openai-key"
-export ANTHROPIC_API_KEY="your-anthropic-key"
-export GOOGLE_API_KEY="your-google-key"
-```
-
-**步骤 3：** 在 `project/config.py` 中添加多提供商配置
-
-```python
-# --- Multi-Provider LLM Configuration ---
-LLM_CONFIGS = {
-    "ollama": {
-        "model": "ministral-3:14b-instruct-2512-q4_K_M",
-        "url":"http://localhost:11434",
-        "temperature": 0
-    },
-    "openai": {
-        "model": "gpt-5.2",
-        "temperature": 0
-    },
-    "anthropic": {
-        "model": "claude-sonnet-4-6",
-        "temperature": 0
-    },
-    "google": {
-        "model": "gemini-2.5-flash",
-        "temperature": 0
-    }
-}
-
-# 仅修改这一行即可切换提供商
-ACTIVE_LLM_CONFIG = "ollama"
-```
-
-**步骤 4：** 修改 `project/core/rag_system.py` 中的 `initialize()` 方法
-
-用以下代码替换现有 LLM 初始化逻辑：
-
-```python
-def initialize(self):
-    # 读取当前激活配置
-    active_config = config.LLM_CONFIGS[config.ACTIVE_LLM_CONFIG]
-    model = active_config["model"]
-    temperature = active_config["temperature"]
-    
-    if config.ACTIVE_LLM_CONFIG == "ollama":
-        from langchain_ollama import ChatOllama
-        llm = ChatOllama(model=model, temperature=temperature, base_url=active_config["url"])
-        
-    elif config.ACTIVE_LLM_CONFIG == "openai":
-        from langchain_openai import ChatOpenAI
-        llm = ChatOpenAI(model=model, temperature=temperature)
-        
-    elif config.ACTIVE_LLM_CONFIG == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-        llm = ChatAnthropic(model=model, temperature=temperature)
-        
-    elif config.ACTIVE_LLM_CONFIG == "google":
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        llm = ChatGoogleGenerativeAI(model=model, temperature=temperature)
-        
-    else:
-        raise ValueError(f"Unsupported LLM provider: {config.ACTIVE_LLM_CONFIG}")
-    
-    # 继续初始化工具和图
-    tools = ToolFactory(vector_db=self.vector_db, parent_store_manager=self.parent_store).create_tools()
-    self.agent_graph = create_agent_graph(llm, tools)
-```
-
-**切换提供商：** 只需在 `config.py` 里修改 `ACTIVE_LLM_CONFIG`：
-
-```python
-ACTIVE_LLM_CONFIG = "google"  # 切到 Gemini Pro
-# ACTIVE_LLM_CONFIG = "anthropic"  # 或 Claude Sonnet
-# ACTIVE_LLM_CONFIG = "openai"  # 或 GPT-4o
-```
-
----
-
-**提供商参考表：**
-
-| 提供商 | 环境变量 | 导入语句 | 示例模型 |
-|----------|---------------------|------------------|----------------|
-| OpenAI | `OPENAI_API_KEY` | `from langchain_openai import ChatOpenAI` | `gpt-5.2`, `ggpt-5-mini` |
-| Anthropic | `ANTHROPIC_API_KEY` | `from langchain_anthropic import ChatAnthropic` | `claude-opus-4-6`, `claude-sonnet-4-6` |
-| Google | `GOOGLE_API_KEY` | `from langchain_google_genai import ChatGoogleGenerativeAI` | `gemini-2.5-pro`, `gemini-2.5-flash` |
-| Ollama | 无（本地） | `from langchain_ollama import ChatOllama` | `qwen3:4b-instruct-2507-q4_K_M`, `ministral-3:8b-instruct-2512-q4_K_M`, `llama3.1:8b-instruct-q6_K` |
-
----
-
-### 3. 更换 Embedding 模型
-
-**为什么要换？** 在速度、成本、质量之间做权衡。
-
-**步骤 1：** 更新 `project/config.py`
-
-```python
-# 当前中文检索模型
-DENSE_MODEL = "BAAI/bge-base-zh-v1.5"
-DENSE_EMBEDDING_DIMENSION = 768
-DENSE_QUERY_INSTRUCTION = "为这个句子生成表示以用于检索相关文章："
-DENSE_NORMALIZE_EMBEDDINGS = True
-
-# 当前中文重排模型
-RERANKER_MODEL = "BAAI/bge-reranker-base"
-
-SPARSE_RETRIEVAL_BACKEND = "postgres_full_text_jieba"
-```
-
-如果 Hugging Face 直连不稳定，启动应用前设置国内镜像：
-
-```bash
-export HF_ENDPOINT=https://hf-mirror.com
-```
-
-**步骤 2：** 如果 embedding 维度发生变化，重建 PostgreSQL 数据卷并重新索引文档。
-
-应用会自动创建表，但已有的 `child_chunks.embedding` 列必须与 `DENSE_EMBEDDING_DIMENSION` 一致；不一致时需要清库后重新上传资料。
-
-**常见 Embedding 模型：**
-
-| 模型 | 上下文长度 | 向量维度 | 速度 | 质量 | 适用场景 |
-|-------|--------------|------------------|-------|---------|----------|
-| all-MiniLM-L6-v2 | 256 tokens | 384 | 快 | 良好 | 通用场景，快速语义相似度 |
-| all-mpnet-base-v2 | 512 tokens | 768 | 中 | 优秀 | 高精度语义检索 |
-| BAAI/bge-large-zh-v1.5 | 512 tokens | 1024 | 慢 | 优秀 | GPU 上的中文检索 |
-| BAAI/bge-base-zh-v1.5 | 512 tokens | 768 | 中 | 很好 | 保持 768 维向量库的中文检索 |
-| google/embeddinggemma-300m | 2048 tokens | 768 | 快 | 很好 | 轻量高效的多语言检索 |
-| Qwen/Qwen3-Embedding-8B | 32768 tokens | 4096 | 慢 | 优秀 / SOTA | 大规模多语言 embedding，长上下文 RAG |
-
----
-
-### 4. 调整分块策略
-
-**为什么要调？** 在检索精度与上下文丰富度之间平衡。
-
-> **💡 验证工具：** 为避免反复试错，你可以使用 🐿️[**Chunky**](https://github.com/GiovanniPasq/chunky) 可视化检查不同策略对文档的影响。
-
-**步骤 1：** 在 `project/config.py` 中调整分块大小
-
-```python
-# 适用于短事实型查询（例如技术文档）
+RETRIEVAL_FUSION_MODE = "rrf"
+DENSE_TOP_K = 70
+SPARSE_TOP_K = 30
+RRF_TOP_K = 20
+RRF_K = 60
+RERANKER_FINAL_TOP_K = 3
 CHILD_CHUNK_SIZE = 300
 CHILD_CHUNK_OVERLAP = 60
-MIN_PARENT_SIZE = 1500
-MAX_PARENT_SIZE = 8000
-
-# 适用于叙述型/强上下文查询（例如法律文档）
-# CHILD_CHUNK_SIZE = 800
-# CHILD_CHUNK_OVERLAP = 150
-# MIN_PARENT_SIZE = 3000
-# MAX_PARENT_SIZE = 15000
+MIN_PARENT_SIZE = 2000
+MAX_PARENT_SIZE = 4000
 ```
 
-**步骤 2（可选）：** 替换 `project/ingestion/chunking.py` 中的切分器
+默认支持的文档扩展名：
 
-**默认（基于字符）：**
-```python
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-
-self.__child_splitter = RecursiveCharacterTextSplitter(
-    chunk_size=config.CHILD_CHUNK_SIZE,
-    chunk_overlap=config.CHILD_CHUNK_OVERLAP
-)
+```text
+.pdf,.md,.docx,.pptx
 ```
 
-**替代（句子感知）：**
-```python
-from langchain_text_splitters import SentenceTransformersTokenTextSplitter
+上下文策略配置：
 
-self.__child_splitter = SentenceTransformersTokenTextSplitter(
-    chunk_size=config.CHILD_CHUNK_SIZE,
-    chunk_overlap=config.CHILD_CHUNK_OVERLAP
-)
+```env
+RETRIEVAL_CONTEXT_POLICY=adaptive
+RETRIEVAL_NEIGHBOR_WINDOW=1
+RETRIEVAL_PARENT_EXPAND_MIN_HITS=2
 ```
 
-**步骤 3：** 重新运行文档摄取流程
+可用策略包括 `adaptive`、`child`、`neighbor` 和 `parent`。
 
-在 Gradio 界面重新上传文档，以应用新的分块策略。
+### Hugging Face 缓存
 
-**分块建议：**
+应用默认把 Hugging Face 缓存放在 `.cache/huggingface`。常用环境变量：
 
-> ⚠️ **说明：** 以下为经验值。最佳尺寸依赖于：
-> - **子块（Child chunk）** → embedding 模型上下文窗口（例如 BAAI/bge-large-zh-v1.5 为 512 tokens）：子块大小不应超过该窗口
-> - **父块（Parent chunk）** → 生成模型上下文窗口（例如 8K、32K、128K tokens）：父块必须能与查询一起放入传给 LLM 的上下文中
->
-> 请务必在你的语料上做实测验证。
-
-| 文档类型 | 子块大小 | 父块大小 | 原因 |
-|---------------|-----------|-------------|-----------|
-| 技术文档 | 300-500 | 2000-4000 | 精确定位、代码片段场景 |
-| 法律合同 | 600-1000 | 5000-15000 | 强上下文、定义密集 |
-| 研究论文 | 400-600 | 3000-8000 | 精度与上下文平衡 |
-| FAQ / 知识库 | 200-400 | 1500-4000 | 短而聚焦的回答 |
-
----
-
-### 5. Agent 配置
-
-在 `project/config.py` 中调节 Agent 行为：
-```python
-# 防止无限循环的硬限制
-MAX_TOOL_CALLS = 8       # 每次 Agent 运行最大工具调用数
-MAX_ITERATIONS = 10      # Agent 推理循环最大迭代次数
-GRAPH_RECURSION_LIMIT = 50 # 触发停止条件前最大步骤数
-
-# 上下文压缩阈值
-BASE_TOKEN_THRESHOLD = 2000     # 初始压缩阈值
-TOKEN_GROWTH_FACTOR = 0.9       # 每次压缩后的乘数
+```env
+HF_ENDPOINT=https://hf-mirror.com
+HF_HUB_OFFLINE=0
+DENSE_LOCAL_FILES_ONLY=false
+RERANKER_LOCAL_FILES_ONLY=false
 ```
 
-| 参数 | 影响 |
-|-----------|--------|
-| `MAX_TOOL_CALLS` | 复杂问题可适当增大；简单问题可减小以提速 |
-| `MAX_ITERATIONS` | 控制 Agent 可进行多少轮推理循环 |
-| `GRAPH_RECURSION_LIMIT` | 面对复杂 [graphs](https://docs.langchain.com/oss/python/langgraph/errors/GRAPH_RECURSION_LIMIT) 可适当提高 |
-| `BASE_TOKEN_THRESHOLD` | 增大可延后压缩触发 |
-| `TOKEN_GROWTH_FACTOR` | 值越低，压缩越激进 |
+如果修改 embedding 模型维度，需要重建 PostgreSQL 数据卷并重新索引文档。
 
----
+### 可选功能
 
-## 可观测性
+Langfuse 链路追踪：
 
-通过 [Langfuse](https://langfuse.com) 的可选追踪功能，你可以捕获每次 LLM 调用、工具调用和图状态切换。这对于调试 Agent 行为、跟踪成本和评估检索质量非常有用。
+```env
+LANGFUSE_ENABLED=false
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASE_URL=http://localhost:3000
+```
 
-### 启用 Langfuse
+`project/config.py` 和 `project/.env.example` 中保留了旧版多模态 PDF 图片相关配置，但默认主转换链路是 MarkItDown。
 
-1. 在 [Langfuse Cloud](https://cloud.langfuse.com/) 注册，创建组织与项目，然后在项目设置中生成 API Key。
-2. 设置环境变量（或复制 `.env.example` 为 `.env`）：
+## 内部 HTTP API
+
+当前浏览器 UI 使用以下内部路由。这些接口用于本地开发说明，不承诺作为稳定外部 API。
+
+文档与课程：
+
+- `POST /api/documents/upload`
+- `GET /api/documents/tasks/{task_id}`
+- `GET /api/documents/files`
+- `GET /api/documents/courses`
+- `POST /api/documents/clear`
+- `POST /api/documents/courses/rename`
+- `POST /api/documents/sections/rename`
+
+会话：
+
+- `GET /api/sessions`
+- `POST /api/sessions`
+- `DELETE /api/sessions/{session_id}`
+- `GET /api/sessions/{session_id}/turns`
+
+聊天：
+
+- `POST /api/chat`：返回 `text/event-stream` 流式事件。
+- `POST /api/chat/clear`
+
+上传任务保存在内存中，并会在清理窗口后过期。聊天轮次和会话元数据保存在 `runtime/session_memory.sqlite3`。
+
+## 运行时数据
+
+运行时产物写入 `runtime/`：
+
+- `markdown_docs`：转换后的 Markdown。
+- `markdown_docs_cleaned`：清洗后的 Markdown。
+- `markdown_cleaning_logs` 和 `markdown_cleaning_diffs`：清洗审计文件。
+- `ingestion_logs`：每个文档的摄入阶段日志。
+- `index_state`：索引 manifest 和课程结构。
+- `document_images`：启用时保存 PDF 图片提取结果。
+- `session_memory.sqlite3`：聊天会话记忆。
+- `evaluation_reports`：评测输出。
+
+## 评测
+
+详细评测模式和报告有效性规则见 `project/evaluation/README.md`。
+
+RAGBench oracle-context 生成评测示例：
 
 ```bash
-export LANGFUSE_ENABLED=true
-export LANGFUSE_PUBLIC_KEY=pk-lf-...
-export LANGFUSE_SECRET_KEY=sk-lf-...
-export LANGFUSE_BASE_URL=https://cloud.langfuse.com   # 或你的自托管地址
+python project/evaluation/runners/ragbench_eval_runner.py \
+  --subset covidqa \
+  --split test \
+  --limit 50 \
+  --output-dir runtime/evaluation_reports/ragbench_covidqa_test_50 \
+  --ragas-max-workers 1 \
+  --ragas-batch-size 1
 ```
 
-4. 正常运行应用后，可在 [Langfuse dashboard](https://cloud.langfuse.com/) 查看追踪。
+本地检索评测示例：
 
-如需禁用追踪，将 `LANGFUSE_ENABLED=false` 或不设置相关变量即可。无论是否启用追踪，应用行为保持一致。
-
-关于 Langfuse 与 LangChain/LangGraph 集成的更多信息，请参考官方[文档](https://docs.langchain.com/oss/python/integrations/providers/langfuse)。
-
-### 会被追踪的内容
-
-| 组件 | 追踪操作 |
-|-----------|-------------------|
-| 图节点 | `summarize_history`、`rewrite_query`、`orchestrator`、`compress_context`、`fallback_response`、`aggregate_answers` |
-| 工具 | `search_child_chunks`、`retrieve_parent_chunks`（参数 + 结果） |
-| 结构化输出 | 改写步骤中的 `QueryAnalysis` 解析 |
-| 子图并行分发 | 通过 `Send()` 发起的并行 Agent 调用 |
-
-### 部署方式
-
-- **Langfuse Cloud**：在 [cloud.langfuse.com](https://cloud.langfuse.com) 注册，免费额度为每月 50K observations。
-- **自托管**：MIT 协议，可使用 Docker Compose 部署。参见官方[自托管文档](https://langfuse.com/self-hosting)。
-
-关于不同可观测性平台（LangSmith、Arize Phoenix、AgentOps、Braintrust、Helicone）的详细对比以及完整自托管方案，可参考 [`Observability_Guide.ipynb`](../Observability_Guide.ipynb)。
-
----
-
-## 高级主题
-
-### 定制 RAG Agent
-
-**位置：** `project/rag_agent/`
-
-**增加/删除节点：** 编辑 `graph.py` 与 `nodes.py`
-
-示例：添加事实核查节点
-```python
-# In nodes.py
-def fact_check_node(state):
-    # Your fact-checking logic
-    return {"fact_checked": True}
-
-# In graph.py
-builder.add_node("fact_check", fact_check_node)
-builder.add_edge("retrieve", "fact_check")
-```
-
-**修改条件路由：** 编辑 `edges.py` 以调整图流转逻辑
-
-系统中的示例 - 基于问题清晰度进行路由：
-```python
-def route_after_rewrite(state: State) -> Literal["request_clarification", "agent"]:
-    """Routes to human input if question unclear, otherwise processes all rewritten queries"""
-    if not state.get("questionIsClear", False):
-        return "request_clarification"
-    else:
-        # Fan-out: send each rewritten question to parallel processing
-        return [
-            Send("agent", {"question": query, "question_index": idx, "messages": []})
-            for idx, query in enumerate(state["rewrittenQuestions"])
-        ]
-```
-
-这种模式允许 Agent 在“向用户请求澄清”和“并行处理多个改写问题”之间进行选择。
-
-**修改提示词：** 编辑 `prompts.py` 以改变 Agent 行为和回答风格
-
-**添加自定义工具：** 扩展 `tools.py`，加入新的检索策略或外部集成
-
-### 存储后端
-
-当前运行时存储后端是 PostgreSQL + pgvector。直连 SQL 位于 `project/storage/postgres.py`，子块检索位于 `project/storage/pg_vector_store.py`，父块存储位于 `project/storage/pg_parent_store.py`。
-
-### 扩展 UI
-
-**位置：** `project/ui/gradio_app.py`
-
-你可以增加运行时设置、管理面板或分析功能：
-```python
-with gr.Accordion("Advanced Settings", open=False):
-    provider_dropdown = gr.Dropdown(
-        choices=["openai", "anthropic", "google", "ollama"],
-        label="LLM Provider"
-    )
-```
-
-### Docker 部署
-
-> ⚠️ **系统要求**：Docker 至少分配 8GB 内存。默认 Ollama 模型约需 3.3GB 才能运行。
-
-#### 构建并运行
 ```bash
-# 构建镜像
-docker build -t agentic-rag -f project/Dockerfile .
-
-# 运行容器
-docker run --name rag-assistant -p 7860:7860 agentic-rag
+python project/evaluation/runners/retrieval_eval_runner.py \
+  --dataset project/evaluation/datasets/eval_questions.jsonl \
+  --top-k 10 \
+  --output-dir runtime/evaluation_reports/local_retrieval
 ```
 
-**可选：GPU 加速**（仅 NVIDIA）：
+本地 RAGAS 生成评测示例：
+
 ```bash
-docker run --gpus all --name rag-assistant -p 7860:7860 agentic-rag
+python project/evaluation/runners/ragas_eval_runner.py \
+  --dataset project/evaluation/datasets/eval_questions.jsonl \
+  --top-k 10 \
+  --output-dir runtime/evaluation_reports/local_ragas
 ```
 
-**常用命令：**
+使用评测数字时必须同时说明 dataset、split、limit、evaluation type 和 warning 摘要。空数据集或占位 gold 数据不能支撑效果结论。
+
+## Docker 说明
+
+`docker-compose.yml` 是当前启动 PostgreSQL + pgvector 的路径。
+
+`project/Dockerfile` 仍保留本地模型服务启动路径，但当前 `RAGSystem` 需要 `DEEPSEEK_API_KEY` 且使用 `ChatOpenAI`。在它和当前 LLM 配置一起更新前，应把该 Dockerfile 视为旧部署产物。
+
+## 验证
+
+最小代码检查：
+
 ```bash
-docker stop rag-assistant      # 停止
-docker start rag-assistant     # 重启
-docker logs -f rag-assistant   # 查看日志
-docker rm -f rag-assistant     # 删除
+python -m py_compile project/app.py project/server.py project/config.py
 ```
 
-> ⚠️ **性能说明**：在 Windows/Mac 上，Docker 通过 Linux VM 运行，可能会降低文档索引等 I/O 操作性能；LLM 推理速度通常影响不大。在 Linux 上，性能与本地运行基本相当。
-
-启动后，访问 `http://localhost:7860`。
-
----
-
-## 故障排查
-
-| 问题 | 原因 | 解决方案 |
-|-------|-------|----------|
-| "Model not found" 错误 | 提供商对应的模型名错误 | 校验 `LLM_MODEL` 是否符合提供商 API（例如 `gpt-4o-mini` 而不是 `gpt4-mini`） |
-| 检索质量差 | embedding 模型或分块配置不佳 | 修改 embedding 后重新索引文档，或调整分块大小 |
-| 响应慢 | embedding 模型过大或 `top_k` 过高 | 使用更小 embedding（如 BAAI/bge-base-zh-v1.5）或下调检索工具中的 `top_k` |
-| API 速率限制超限 | 向外部提供商请求过多 | 增加指数退避重试逻辑，或改用本地 Ollama 模型 |
-| 内存不足（OOM） | 文档规模过大或 embedding 过重 | 使用更小 embedding、减小 batch size，或启用 GPU 加速 |
-| 检索结果为空 | 尚未索引文档或 PostgreSQL 数据被重建 | 重新上传文档，并确认 PostgreSQL 正在运行 |
-| 切换提供商后导入报错 | 缺少 SDK 依赖 | 安装对应包：`pip install langchain-{provider}` |
-| 多次运行回答不一致 | 温度参数过高 | 在配置中设定 `LLM_TEMPERATURE = 0` 获取稳定结果 |
+仅修改文档时，不需要运行完整测试套件；如果 README 引用的命令或行为发生变化，再运行对应最小验证。
