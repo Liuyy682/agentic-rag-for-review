@@ -30,12 +30,12 @@ class TestConversationMemoryPrompts(unittest.TestCase):
         llm = CaptureLLM(
             json.dumps(
                 {
-                    "intent_type": "follow_up",
+                    "intent_type": "rag_qa",
                     "is_clear": True,
                     "original_query": "What about it?",
                     "normalized_query": "What about caching?",
                     "clarification_needed": "",
-                    "follow_up_context": "caching",
+
                     "tasks": [],
                 }
             )
@@ -48,7 +48,7 @@ class TestConversationMemoryPrompts(unittest.TestCase):
 
         result = recognize_intent(state, llm)
 
-        self.assertEqual(result["intent_type"], "follow_up")
+        self.assertEqual(result["intent_type"], "rag_qa")
         self.assertIn("MEMORY BLOCK", llm.messages[1].content)
 
     def test_rewrite_query_includes_conversation_memory(self):

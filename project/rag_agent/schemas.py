@@ -24,7 +24,7 @@ class TaskSpec(BaseModel):
     )
 
 class IntentAnalysis(BaseModel):
-    intent_type: Literal["rag_qa", "clarification", "chitchat", "follow_up"] = Field(
+    intent_type: Literal["rag_qa", "clarification", "chitchat"] = Field(
         description="User intent for the current message."
     )
     is_clear: bool = Field(
@@ -34,15 +34,11 @@ class IntentAnalysis(BaseModel):
         description="Original user message."
     )
     normalized_query: str = Field(
-        description="Self-contained query after resolving follow-up context when possible."
+        description="Self-contained query."
     )
     clarification_needed: str = Field(
         default="",
         description="Clarification question to ask when intent or referents are unclear."
-    )
-    follow_up_context: str = Field(
-        default="",
-        description="Conversation context used to resolve a follow-up query."
     )
     tasks: List[TaskSpec] = Field(
         default_factory=list,

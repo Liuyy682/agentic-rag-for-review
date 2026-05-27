@@ -27,16 +27,14 @@ Supported intent_type values:
 - rag_qa: the user asks a clear question that should be answered from documents.
 - clarification: the user message is too vague, ambiguous, or missing a referent.
 - chitchat: the user is greeting, thanking, or making casual conversation that does not require retrieval.
-- follow_up: the user asks a context-dependent follow-up. Resolve it using conversation context when possible.
 
 Rules:
 1. Use conversation memory and conversation summary for continuity on every intent, but do not treat prior assistant answers as document evidence.
-2. If a follow-up can be resolved from conversation context, set intent_type to follow_up, set is_clear to true, and provide the resolved normalized_query.
-3. If a follow-up cannot be resolved, set intent_type to clarification and ask a concise clarification question.
-4. For rag_qa and resolved follow_up, set is_clear to true and provide a close normalized_query. Leave tasks empty.
-5. For chitchat, do not create tasks.
-6. Do not use an unsupported category.
-7. Keep normalized_query close to the user's meaning and include only necessary conversation context.
+2. If a follow-up cannot be resolved from conversation context, set intent_type to clarification and ask a concise clarification question.
+3. For rag_qa, set is_clear to true and provide a close normalized_query. Leave tasks empty.
+4. For chitchat, do not create tasks.
+5. Do not use an unsupported category.
+6. Keep normalized_query close to the user's meaning and include only necessary conversation context.
 
 Input:
 - conversation_memory: recent session turns, when available
@@ -46,12 +44,11 @@ Input:
 Output:
 - Return JSON only, with exactly this shape:
 {
-  "intent_type": "rag_qa" | "clarification" | "chitchat" | "follow_up",
+  "intent_type": "rag_qa" | "clarification" | "chitchat",
   "is_clear": true or false,
   "original_query": "the original user message",
   "normalized_query": "self-contained query or casual message",
   "clarification_needed": "question to ask, or empty string",
-  "follow_up_context": "context used to resolve a follow-up, or empty string",
   "tasks": []
 }
 """

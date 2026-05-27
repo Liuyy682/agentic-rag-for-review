@@ -16,7 +16,7 @@ def _parse_intent_analysis(content: str, fallback_query: str) -> IntentAnalysis:
         raw = json.loads(match.group()) if match else {}
 
     intent_type = raw.get("intent_type") or "clarification"
-    if intent_type not in {"rag_qa", "clarification", "chitchat", "follow_up"}:
+    if intent_type not in {"rag_qa", "clarification", "chitchat"}:
         intent_type = "clarification"
 
     tasks = raw.get("tasks") or []
@@ -29,7 +29,6 @@ def _parse_intent_analysis(content: str, fallback_query: str) -> IntentAnalysis:
         original_query=str(raw.get("original_query") or fallback_query),
         normalized_query=str(raw.get("normalized_query") or fallback_query),
         clarification_needed=str(raw.get("clarification_needed") or "").strip(),
-        follow_up_context=str(raw.get("follow_up_context") or "").strip(),
         tasks=tasks,
     )
 
@@ -77,7 +76,7 @@ def recognize_intent(state: State, llm):
     response_message = llm.with_config(temperature=0.1).invoke([SystemMessage(content=get_intent_recognition_prompt()), HumanMessage(content=context_section)])
     response = _parse_intent_analysis(str(response_message.content), last_message.content)
     intent_type = response.intent_type
-    is_rag_intent = intent_type in ("rag_qa", "follow_up") and response.is_clear
+    is_rag_intent = intent_type == "rag_qa" and response.is_clear
 
     if is_rag_intent:
         return {
