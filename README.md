@@ -1,6 +1,6 @@
 # agentic-rag-for-review
 
-面向课程资料和本地文档问答的 Agentic RAG 复盘项目。当前主应用是一个 FastAPI/Uvicorn 服务：`project/app.py` 启动后提供静态 Web 页面、内部 `/api/*` 接口和 SSE 流式聊天；后端使用 LangGraph 编排 RAG Agent，使用 PostgreSQL + pgvector 存储知识库。
+面向课程资料和本地文档问答的 Agentic RAG 项目。当前主应用是一个 FastAPI/Uvicorn 服务：`project/app.py` 启动后提供静态 Web 页面、内部 `/api/*` 接口和 SSE 流式聊天；后端使用 LangGraph 编排 RAG Agent，使用 PostgreSQL + pgvector 存储知识库。
 
 ## 当前能力
 
