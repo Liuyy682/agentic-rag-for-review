@@ -99,6 +99,17 @@ python project/app.py
 http://localhost:7860
 ```
 
+也可以用 Docker 同时启动应用和数据库：
+
+```bash
+cp project/.env.example project/.env
+# 填写 project/.env 中的 DEEPSEEK_API_KEY
+# 首次启动会安装 Python 依赖，后续模型文件缓存在 hf_cache 卷中
+docker compose up --build app
+```
+
+`docker/` 目录仍在使用：`docker/init.sql` 会被 PostgreSQL 容器挂载，用于初始化 `vector` 扩展。
+
 ## 配置要点
 
 当前 LLM 入口在 `project/core/rag_system.py`，使用 `ChatOpenAI` 连接 DeepSeek/OpenAI-compatible API：

@@ -56,7 +56,16 @@ Open:
 http://localhost:7860
 ```
 
-Configuration is loaded from the repository root `.env` first, then from `project/.env` with override behavior.
+To run the app and database with Docker:
+
+```bash
+cp project/.env.example project/.env
+# Fill DEEPSEEK_API_KEY in project/.env
+# The first run installs Python dependencies; Hugging Face model files are cached in the hf_cache volume.
+docker compose up --build app
+```
+
+Configuration is loaded from the repository root `.env` first, then from `project/.env` with override behavior. The Docker image excludes `.env` files; `docker-compose.yml` passes `project/.env` at runtime when present and overrides `DATABASE_URL` to use the Compose `postgres` service.
 
 ## Architecture
 
@@ -260,9 +269,12 @@ Use evaluation numbers only with their dataset, split, limit, evaluation type, a
 
 ## Docker Notes
 
-`docker-compose.yml` is the current path for starting PostgreSQL + pgvector.
+`docker-compose.yml` supports both database-only development and full container deployment.
 
-`project/Dockerfile` still contains a local model service startup path, but the current `RAGSystem` requires `DEEPSEEK_API_KEY` and uses `ChatOpenAI`. Treat that Dockerfile as a legacy deployment artifact unless it is updated together with the current LLM configuration.
+- `docker compose up -d postgres` starts PostgreSQL + pgvector for local Python development.
+- `docker compose up --build app` builds `Dockerfile` and starts the FastAPI app with PostgreSQL.
+- `docker/init.sql` is still used by the PostgreSQL container to initialize the `vector` extension, so the `docker/` directory should stay while compose mounts that file.
+- `rag_runtime`, `hf_cache`, and `pgdata` volumes persist uploaded documents/session state, Hugging Face model files, and PostgreSQL data.
 
 ## Verification
 

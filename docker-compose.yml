@@ -1,4 +1,31 @@
 services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: project/.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://agentic_rag:dev_only@postgres:5432/agentic_rag
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
+      DENSE_LOCAL_FILES_ONLY: ${DENSE_LOCAL_FILES_ONLY:-false}
+      RERANKER_LOCAL_FILES_ONLY: ${RERANKER_LOCAL_FILES_ONLY:-false}
+    ports:
+      - "7860:7860"
+    volumes:
+      - rag_runtime:/app/runtime
+      - hf_cache:/app/.cache/huggingface
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:7860/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   postgres:
     image: pgvector/pgvector:pg17
     environment:
@@ -9,12 +36,14 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U agentic_rag"]
+      test: ["CMD-SHELL", "pg_isready -U agentic_rag -d agentic_rag"]
       interval: 5s
       timeout: 5s
       retries: 5
 
 volumes:
   pgdata:
+  rag_runtime:
+  hf_cache:

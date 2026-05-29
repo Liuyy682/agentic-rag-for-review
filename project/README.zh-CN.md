@@ -56,7 +56,16 @@ python project/app.py
 http://localhost:7860
 ```
 
-配置加载顺序是先读取仓库根目录 `.env`，再读取 `project/.env`，并以 `project/.env` 覆盖同名配置。
+也可以用 Docker 同时启动应用和数据库：
+
+```bash
+cp project/.env.example project/.env
+# 填写 project/.env 中的 DEEPSEEK_API_KEY
+# 首次启动会安装 Python 依赖，Hugging Face 模型文件会缓存在 hf_cache 卷中
+docker compose up --build app
+```
+
+配置加载顺序是先读取仓库根目录 `.env`，再读取 `project/.env`，并以 `project/.env` 覆盖同名配置。Docker 镜像会排除 `.env` 文件；`docker-compose.yml` 会在运行时传入存在的 `project/.env`，并把 `DATABASE_URL` 覆盖为 Compose 内部的 `postgres` 服务地址。
 
 ## 架构
 
@@ -260,9 +269,12 @@ python project/evaluation/runners/ragas_eval_runner.py \
 
 ## Docker 说明
 
-`docker-compose.yml` 是当前启动 PostgreSQL + pgvector 的路径。
+`docker-compose.yml` 同时支持只启动数据库和完整容器部署。
 
-`project/Dockerfile` 仍保留本地模型服务启动路径，但当前 `RAGSystem` 需要 `DEEPSEEK_API_KEY` 且使用 `ChatOpenAI`。在它和当前 LLM 配置一起更新前，应把该 Dockerfile 视为旧部署产物。
+- `docker compose up -d postgres`：为本地 Python 开发启动 PostgreSQL + pgvector。
+- `docker compose up --build app`：构建 `Dockerfile`，并启动 FastAPI 应用和 PostgreSQL。
+- `docker/init.sql` 仍被 PostgreSQL 容器用于初始化 `vector` 扩展，所以 compose 还挂载该文件时应保留 `docker/` 目录。
+- `rag_runtime`、`hf_cache`、`pgdata` 三个卷分别持久化上传文档/会话状态、Hugging Face 模型文件和 PostgreSQL 数据。
 
 ## 验证
 
