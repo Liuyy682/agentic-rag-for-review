@@ -1,4 +1,5 @@
 .DS_Store
+docker/
 qdrant_db/
 markdown_docs/
 markdown_docs_cleaned/
