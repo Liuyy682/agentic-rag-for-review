@@ -5,7 +5,7 @@
 ## 当前能力
 
 - Web UI 上传 PDF、Markdown、Word、PowerPoint 文件，并显示异步摄入进度。
-- 文档转换为 Markdown 后进行清洗、父子分块、索引和课程绑定。
+- 文档转换为 Markdown 后进行清洗（含 PUA 字符清理）、父子分块、索引和课程绑定。
 - 基于 PostgreSQL + pgvector 保存父块、子块、元数据、稠密向量和稀疏检索字段。
 - 默认检索链路为稠密向量检索 + PostgreSQL 全文检索 + RRF 融合 + cross-encoder 重排。
 - 根据问题类型和命中情况选择子块、邻近子块或父块作为回答上下文。
@@ -57,6 +57,7 @@ Browser static UI
 - MarkItDown、PyMuPDF 等文档转换工具
 - SQLite 会话记忆
 - 可选 Langfuse 链路追踪
+- 可选 PaddleOCR 图片文字提取（IMAGE_ANALYSIS_ENGINE=paddleocr）
 
 ## 安装与运行
 
@@ -67,6 +68,14 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
+
+如果使用 PaddleOCR 图片分析（`IMAGE_ANALYSIS_ENGINE=paddleocr`），还需安装可选依赖：
+
+```bash
+pip install paddlepaddle>=3.0.0 paddleocr>=2.9.0
+```
+
+PaddleOCR 首次运行时会自动下载模型文件（约 500MB），请确保网络畅通且磁盘空间充足。
 
 启动 PostgreSQL + pgvector：
 
@@ -146,10 +155,53 @@ SUPPORTED_DOCUMENT_EXTENSIONS = [".pdf", ".md", ".docx", ".pptx"]
 
 ```env
 HF_ENDPOINT=https://hf-mirror.com
-HF_HUB_OFFLINE=0
+HF_HUB_OFFLINE=1
 DENSE_LOCAL_FILES_ONLY=false
 RERANKER_LOCAL_FILES_ONLY=false
 ```
+
+`HF_HUB_OFFLINE` 默认值为 `1`（离线模式），Dockerfile 和 `app.py`/`config.py` 均已强制设置，避免 transformers 后台线程在无网络环境下尝试连接 huggingface.co 导致超时。如果模型尚未下载到本地缓存，需先将 `HF_HUB_OFFLINE` 临时设为 `0` 完成首次下载。
+
+### 图片分析引擎
+
+通过 `IMAGE_ANALYSIS_ENGINE` 选择文档内嵌图片的分析方式：
+
+| 值 | 说明 |
+|---|---|
+| `none`（默认） | 跳过图片分析 |
+| `paddleocr` | 本地 PaddleOCR 文字提取，中文识别效果好，首次需下载约 500MB 模型 |
+| `vlm` | 调用 OpenAI-compatible VLM API（如 vLLM、Ollama）进行语义理解 |
+
+PaddleOCR 配置（`IMAGE_ANALYSIS_ENGINE=paddleocr` 时生效）：
+
+```env
+IMAGE_ANALYSIS_ENGINE=paddleocr
+PADDLEOCR_LANG=ch            # ch / en / ch_en
+PADDLEOCR_USE_GPU=false
+OCR_IMAGE_MIN_WIDTH=80
+OCR_IMAGE_MIN_HEIGHT=40
+OCR_IMAGE_MAX_PER_DOC=80
+OCR_IMAGE_ANALYSIS_WORKERS=2
+```
+
+VLM 配置（`IMAGE_ANALYSIS_ENGINE=vlm` 时生效）：
+
+```env
+IMAGE_ANALYSIS_ENGINE=vlm
+VLM_IMAGE_CAPTION_ENABLED=false
+LOCAL_VLM_BASE_URL=http://localhost:8000/v1
+LOCAL_VLM_API_KEY=EMPTY
+LOCAL_VLM_MODEL=Qwen/Qwen2.5-VL-7B-Instruct
+LOCAL_VLM_TIMEOUT_SECONDS=120
+LOCAL_VLM_MAX_TOKENS=800
+VLM_IMAGE_MIN_WIDTH=80
+VLM_IMAGE_MIN_HEIGHT=40
+VLM_IMAGE_CONTEXT_CHARS=1200
+VLM_IMAGE_MAX_PER_DOC=80
+VLM_IMAGE_ANALYSIS_WORKERS=1
+```
+
+OCR/VLM 分析结果会以 `OCR:` / `RAG_SUMMARY:` / `KEY_TERMS:` 三字段格式嵌入 Markdown，供后续检索索引使用。
 
 如果修改 `DENSE_EMBEDDING_DIMENSION` 或 embedding 模型维度，需要重建 PostgreSQL 数据卷并重新索引文档。
 
