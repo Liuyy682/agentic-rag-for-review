@@ -141,3 +141,7 @@ xxhash==3.6.0
 zstandard==0.25.0
 jieba==0.42.1
 psycopg2-binary==2.9.11
+
+# OCR - PaddleOCR (optional, enable with IMAGE_ANALYSIS_ENGINE=paddleocr)
+paddlepaddle>=3.0.0
+paddleocr>=2.9.0

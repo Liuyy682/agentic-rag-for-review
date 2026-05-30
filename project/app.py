@@ -2,14 +2,16 @@ import sys
 import os
 import logging
 
-# Suppress transformers safetensors auto-conversion (background thread tries to
-# reach huggingface.co; times out without network, producing noisy tracebacks).
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
-
 sys.path.insert(0, os.path.dirname(__file__))
 
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
+
+# Force offline mode after dotenv loads, so the transformers background thread
+# (auto_conversion → safetensors) does not try to reach huggingface.co.
+# Must be a hard assignment, not setdefault — config.py loads dotenv with
+# override=True and would undo a setdefault.
+os.environ["HF_HUB_OFFLINE"] = "1"
 
 # Suppress OTel "Failed to detach context" warning caused by generator/context interaction.
 # Tracing is unaffected.

@@ -9,6 +9,10 @@ _RUNTIME_DIR = os.path.join(_BASE_DIR, "runtime")
 load_dotenv(os.path.join(_BASE_DIR, ".env"))
 load_dotenv(os.path.join(_PROJECT_DIR, ".env"), override=True)
 
+# Force offline mode after dotenv loads to prevent the transformers background
+# thread (auto_conversion) from trying to reach huggingface.co without network.
+os.environ["HF_HUB_OFFLINE"] = "1"
+
 
 def _env_bool(name: str, default: bool = False) -> bool:
     value = os.environ.get(name)
@@ -139,6 +143,18 @@ VLM_IMAGE_MIN_HEIGHT = int(os.environ.get("VLM_IMAGE_MIN_HEIGHT", "40"))
 VLM_IMAGE_CONTEXT_CHARS = int(os.environ.get("VLM_IMAGE_CONTEXT_CHARS", "1200"))
 VLM_IMAGE_MAX_PER_DOC = int(os.environ.get("VLM_IMAGE_MAX_PER_DOC", "80"))
 VLM_IMAGE_ANALYSIS_WORKERS = int(os.environ.get("VLM_IMAGE_ANALYSIS_WORKERS", "1"))
+
+# --- Image Analysis Engine ---
+# 图片分析引擎: "paddleocr", "vlm", "none"
+IMAGE_ANALYSIS_ENGINE = os.environ.get("IMAGE_ANALYSIS_ENGINE", "none")
+# PaddleOCR 配置 (当 IMAGE_ANALYSIS_ENGINE=paddleocr 时生效)
+PADDLEOCR_LANG = os.environ.get("PADDLEOCR_LANG", "ch")  # ch / en / ch_en
+PADDLEOCR_USE_GPU = _env_bool("PADDLEOCR_USE_GPU", False)
+# OCR 通用配置
+OCR_IMAGE_MIN_WIDTH = int(os.environ.get("OCR_IMAGE_MIN_WIDTH", "80"))
+OCR_IMAGE_MIN_HEIGHT = int(os.environ.get("OCR_IMAGE_MIN_HEIGHT", "40"))
+OCR_IMAGE_MAX_PER_DOC = int(os.environ.get("OCR_IMAGE_MAX_PER_DOC", "80"))
+OCR_IMAGE_ANALYSIS_WORKERS = int(os.environ.get("OCR_IMAGE_ANALYSIS_WORKERS", "2"))
 
 # --- Langfuse Observability ---
 LANGFUSE_ENABLED = os.environ.get("LANGFUSE_ENABLED", "false").lower() == "true"

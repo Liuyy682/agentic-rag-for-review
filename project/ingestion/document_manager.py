@@ -264,6 +264,11 @@ class DocumentManager:
         try:
             md_path = convert_document_to_markdown(doc_path, self.markdown_dir, overwrite=True)
             markdown_text = md_path.read_text(encoding="utf-8")
+
+            markdown_text = self._enhance_images(markdown_text, md_path)
+            if markdown_text != md_path.read_text(encoding="utf-8"):
+                md_path.write_text(markdown_text, encoding="utf-8")
+
             markdown_hash = text_hash(markdown_text)
             document = IngestionDocument(
                 doc_id=Path(source_file).stem,
@@ -293,6 +298,30 @@ class DocumentManager:
             self._add_stage(result, "convert", "failed", started_at=start, error=str(exc))
             result.reason = "conversion_failed"
             raise
+
+    def _enhance_images(self, markdown_text: str, md_path: Path) -> str:
+        """对 Markdown 中的本地图片引用执行 OCR/VLM 分析并嵌入结果。
+
+        当 IMAGE_ANALYSIS_ENGINE 为 "none" 时直接返回原文。
+        """
+        engine = getattr(config, "IMAGE_ANALYSIS_ENGINE", "none")
+        if engine == "none":
+            return markdown_text
+
+        from ingestion.image_describer import enhance_markdown_image_references, create_image_describer
+
+        describe_fn = create_image_describer()
+        if describe_fn is None:
+            return markdown_text
+
+        image_root = Path(config.DOCUMENT_IMAGE_DIR)
+        enhanced = enhance_markdown_image_references(
+            markdown_text,
+            markdown_dir=md_path.parent,
+            image_root=image_root,
+            describe_image=describe_fn,
+        )
+        return enhanced
 
     def _clean_document(self, document: IngestionDocument, result: DocumentIngestionResult) -> dict[str, str]:
         cleaned = self._run_stage(

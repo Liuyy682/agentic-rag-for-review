@@ -26,6 +26,21 @@ IMAGE_ANALYSIS_BLOCK_RE = re.compile(
 )
 MIN_RAG_SUMMARY_CHARS = 15
 
+# Private Use Area characters (U+E000–U+F8FF) — font glyphs leaked from PDF conversion
+_PUA_CHAR_RE = re.compile(r"[-]+")
+
+# Known PUA → standard mappings for common PDF font artifacts (Wingdings etc.)
+_PUA_REPLACEMENTS: dict[int, str] = {
+    0xF0D8: "•",   #  → bullet •
+    0xF09C: "–",   #  → en dash –
+    0xF0B7: "•",   #  → bullet •
+    0xF0A7: "◆",   #  → diamond ◆
+    0xF0FC: "✓",   #  → checkmark ✓
+    0xF0E0: "✉",   #  → envelope ✉
+    0xF0D1: "▶",   #  → right triangle ▶
+    0xF0B2: "→",   #  → right arrow →
+}
+
 
 @dataclass
 class CleanEvent:
@@ -69,6 +84,28 @@ class CleanedMarkdown:
     candidates: list[CleanCandidate]
 
 
+def _sanitize_pua_characters(line: str) -> tuple[str, bool]:
+    """Strip/replace Private Use Area characters leaked from PDF font glyphs.
+
+    Returns (cleaned_line, was_modified).
+    """
+    if not _PUA_CHAR_RE.search(line):
+        return line, False
+
+    def _replace_pua(match: re.Match[str]) -> str:
+        text = match.group(0)
+        result: list[str] = []
+        for ch in text:
+            cp = ord(ch)
+            if cp in _PUA_REPLACEMENTS:
+                result.append(_PUA_REPLACEMENTS[cp])
+            # else: skip the PUA character
+        return "".join(result)
+
+    cleaned = _PUA_CHAR_RE.sub(_replace_pua, line)
+    return cleaned, True
+
+
 def clean_markdown_text(
     markdown_text: str,
     source_file: str = "",
@@ -99,6 +136,11 @@ def clean_markdown_text(
 
         for index, line in enumerate(page.raw_lines):
             stripped = line.strip()
+
+            # Sanitize PUA characters leaked from PDF font glyphs
+            line, _pua_modified = _sanitize_pua_characters(line)
+            if _pua_modified:
+                stripped = line.strip()
 
             # Do not apply line-level noise rules inside fenced code blocks.
             if stripped.startswith("```"):
@@ -352,7 +394,36 @@ def _compact_text(text: str, limit: int = 240) -> str:
 
 
 def parse_pages(markdown_text: str, source_file: str = "") -> list[PageBlock]:
-    """Split Markdown into page blocks using PyMuPDF4LLM page separators."""
+    """Split Markdown into page blocks.
+
+    Supports two page-separator conventions:
+    1. ``--- end of page.page_number=N ---`` markers (PyMuPDF4LLM output).
+    2. ``\\x0c`` form-feed characters (MarkItDown / pymupdf4llm native output).
+
+    Falls back to treating the entire document as a single page when neither
+    separator is present, so plain .md uploads can still use the same pipeline.
+    """
+    if "--- end of page." in markdown_text:
+        return _parse_pages_by_markers(markdown_text, source_file)
+
+    # No markers → try form-feed (\x0c) as page separator
+    if "\x0c" in markdown_text:
+        return _parse_pages_by_form_feed(markdown_text, source_file)
+
+    # Plain markdown: treat entire document as one page
+    lines = markdown_text.splitlines()
+    return [
+        PageBlock(
+            source_file=source_file,
+            page_number=None,
+            raw_text=markdown_text,
+            raw_lines=lines,
+        )
+    ]
+
+
+def _parse_pages_by_markers(markdown_text: str, source_file: str) -> list[PageBlock]:
+    """Split on ``--- end of page.page_number=N ---`` markers."""
     lines = markdown_text.splitlines()
     pages: list[PageBlock] = []
     current_lines: list[str] = []
@@ -373,8 +444,6 @@ def parse_pages(markdown_text: str, source_file: str = "") -> list[PageBlock]:
         else:
             current_lines.append(line)
 
-    # Markdown without page markers is still treated as one page so callers can
-    # use the same cleaning pipeline for uploaded .md files.
     if current_lines or not pages:
         page_number = pages[-1].page_number + 1 if pages and pages[-1].page_number is not None else None
         pages.append(
@@ -385,6 +454,38 @@ def parse_pages(markdown_text: str, source_file: str = "") -> list[PageBlock]:
                 raw_lines=current_lines,
             )
         )
+
+    return pages
+
+
+def _parse_pages_by_form_feed(markdown_text: str, source_file: str) -> list[PageBlock]:
+    """Split on ``\\x0c`` form-feed characters (MarkItDown output)."""
+    sections = markdown_text.split("\x0c")
+    pages: list[PageBlock] = []
+    for i, section in enumerate(sections):
+        text = section.strip()
+        if not text:
+            continue
+        lines = text.splitlines()
+        pages.append(
+            PageBlock(
+                source_file=source_file,
+                page_number=i + 1,  # sequential page numbers
+                raw_text=text,
+                raw_lines=lines,
+            )
+        )
+
+    if not pages:
+        # Entire doc is blank
+        return [
+            PageBlock(
+                source_file=source_file,
+                page_number=None,
+                raw_text="",
+                raw_lines=[],
+            )
+        ]
 
     return pages
 

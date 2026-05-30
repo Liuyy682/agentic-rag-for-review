@@ -47,6 +47,10 @@ def current_index_config() -> dict:
         "document_converter": getattr(config, "DOCUMENT_CONVERTER", "markitdown"),
         "supported_document_extensions": getattr(config, "SUPPORTED_DOCUMENT_EXTENSIONS", [".pdf", ".md", ".docx", ".pptx"]),
     }
+    image_analysis_config = {
+        "image_analysis_engine": getattr(config, "IMAGE_ANALYSIS_ENGINE", "none"),
+        "paddleocr_lang": getattr(config, "PADDLEOCR_LANG", "ch"),
+    }
     return {
         "document_converter": converter_config["document_converter"],
         "dense_model": config.DENSE_MODEL,
@@ -55,6 +59,7 @@ def current_index_config() -> dict:
         "chunker_config_hash": _stable_json_hash(chunker_config),
         "cleaner_config_hash": _stable_json_hash(cleaner_config),
         "embedding_config_hash": _stable_json_hash(embedding_config),
+        "image_analysis_config_hash": _stable_json_hash(image_analysis_config),
     }
 
 

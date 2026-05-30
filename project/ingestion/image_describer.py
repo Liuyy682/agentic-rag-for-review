@@ -96,20 +96,157 @@ class LocalVLMImageDescriber:
         return data["choices"][0]["message"]["content"].strip()
 
 
+class PaddleOcrImageDescriber:
+    """使用 PaddleOCR 从图片中提取文字，输出与 VLM 兼容的三字段格式。
+
+    延迟加载 PaddleOCR 模型（首次调用时初始化），避免在未启用 OCR 时
+    引入不必要的内存开销。无文字图片返回 "SKIP_IMAGE" 以与 VLM 的跳过
+    语义保持一致。
+    """
+
+    def __init__(self, lang: str = "ch", use_gpu: bool = False):
+        self._ocr = None
+        self._lang = lang
+        self._use_gpu = use_gpu
+
+    @property
+    def ocr(self):
+        if self._ocr is None:
+            from paddleocr import PaddleOCR
+            self._ocr = PaddleOCR(lang=self._lang, use_gpu=self._use_gpu)
+        return self._ocr
+
+    def describe_image(self, image_path: Path, context_text: str = "") -> str:
+        """对单张图片执行 OCR 并返回三字段格式结果。
+
+        Args:
+            image_path: 图片文件路径。
+            context_text: 附近正文上下文（OCR 不使用，保留以兼容接口）。
+
+        Returns:
+            "SKIP_IMAGE" 如果未检测到文字，否则返回:
+            OCR: <原始可见文字>
+            RAG_SUMMARY: <前 200 字符摘要>
+            KEY_TERMS: <jieba TextRank 关键词>
+        """
+        try:
+            results = self.ocr.ocr(str(image_path))
+        except Exception:
+            return "SKIP_IMAGE"
+
+        texts: list[str] = []
+        if results and results[0]:
+            for line in results[0]:
+                text = line[1][0].strip()
+                if text:
+                    texts.append(text)
+
+        if not texts:
+            return "SKIP_IMAGE"
+
+        ocr_text = "\n".join(texts)
+        summary = ocr_text[:200].replace("\n", " ")
+        keywords = self._extract_keywords(ocr_text)
+        return f"OCR: {ocr_text}\nRAG_SUMMARY: {summary}\nKEY_TERMS: {keywords}"
+
+    def _extract_keywords(self, text: str, topk: int = 10) -> str:
+        """使用 jieba TextRank 从 OCR 文本中提取关键词。"""
+        try:
+            import jieba.analyse
+            keywords = jieba.analyse.textrank(text, topK=topk)
+            return ", ".join(keywords)
+        except Exception:
+            return ""
+
+
+def create_image_describer() -> Callable[[Path, str], str] | None:
+    """根据 IMAGE_ANALYSIS_ENGINE 配置创建图片描述器。
+
+    Returns:
+        描述器 callable，如果引擎为 "none" 则返回 None。
+
+    Raises:
+        ValueError: 未知的引擎名称。
+    """
+    engine = config.IMAGE_ANALYSIS_ENGINE
+    if engine == "paddleocr":
+        describer = PaddleOcrImageDescriber(
+            lang=config.PADDLEOCR_LANG,
+            use_gpu=config.PADDLEOCR_USE_GPU,
+        )
+        return describer.describe_image
+    elif engine == "vlm":
+        return LocalVLMImageDescriber().describe_image
+    elif engine == "none":
+        return None
+    else:
+        raise ValueError(f"Unknown IMAGE_ANALYSIS_ENGINE: {engine}")
+
+
+def _resolve_default_describer() -> Callable[[Path, str], str]:
+    """解析默认的图片描述器（当调用者未显式传入时）。"""
+    describer = create_image_describer()
+    if describer is not None:
+        return describer
+    # 兜底：未配置时回退到 VLM（保持历史行为）
+    return LocalVLMImageDescriber().describe_image
+
+
+def _is_ocr_engine() -> bool:
+    """当前引擎是否为 OCR 引擎（使用 OCR 配置阈值）。"""
+    return config.IMAGE_ANALYSIS_ENGINE == "paddleocr"
+
+
+def _default_max_per_doc() -> int:
+    if _is_ocr_engine():
+        return config.OCR_IMAGE_MAX_PER_DOC
+    return config.VLM_IMAGE_MAX_PER_DOC
+
+
+def _default_min_width() -> int:
+    if _is_ocr_engine():
+        return config.OCR_IMAGE_MIN_WIDTH
+    return config.VLM_IMAGE_MIN_WIDTH
+
+
+def _default_min_height() -> int:
+    if _is_ocr_engine():
+        return config.OCR_IMAGE_MIN_HEIGHT
+    return config.VLM_IMAGE_MIN_HEIGHT
+
+
+def _default_worker_count() -> int:
+    if _is_ocr_engine():
+        return config.OCR_IMAGE_ANALYSIS_WORKERS
+    return config.VLM_IMAGE_ANALYSIS_WORKERS
+
+
 def enhance_markdown_image_references(
     markdown_text: str,
     markdown_dir: Path | None = None,
     image_root: Path | None = None,
     describe_image: Callable[[Path, str], str] | None = None,
+    max_per_doc: int | None = None,
+    min_width: int | None = None,
+    min_height: int | None = None,
+    worker_count: int | None = None,
 ) -> str:
     if describe_image is None:
-        describe_image = LocalVLMImageDescriber().describe_image
+        describe_image = _resolve_default_describer()
 
-    tasks = _collect_image_analysis_tasks(markdown_text, markdown_dir, image_root)
+    max_per_doc = max_per_doc if max_per_doc is not None else _default_max_per_doc()
+    min_width = min_width if min_width is not None else _default_min_width()
+    min_height = min_height if min_height is not None else _default_min_height()
+    worker_count = worker_count if worker_count is not None else _default_worker_count()
+
+    tasks = _collect_image_analysis_tasks(
+        markdown_text, markdown_dir, image_root,
+        max_per_doc=max_per_doc, min_width=min_width, min_height=min_height,
+    )
     if not tasks:
         return markdown_text
 
-    descriptions = _analyze_images(tasks, describe_image)
+    descriptions = _analyze_images(tasks, describe_image, worker_count=worker_count)
     replacements = {}
     for task in tasks:
         description = descriptions.get(task.image_path, "").strip()
@@ -139,9 +276,16 @@ def _collect_image_analysis_tasks(
     markdown_text: str,
     markdown_dir: Path | None = None,
     image_root: Path | None = None,
+    max_per_doc: int | None = None,
+    min_width: int | None = None,
+    min_height: int | None = None,
 ) -> list[ImageAnalysisTask]:
     tasks: list[ImageAnalysisTask] = []
     seen_paths: set[Path] = set()
+
+    max_per_doc = max_per_doc if max_per_doc is not None else _default_max_per_doc()
+    min_width = min_width if min_width is not None else _default_min_width()
+    min_height = min_height if min_height is not None else _default_min_height()
 
     for match in IMAGE_MARKDOWN_RE.finditer(markdown_text):
         image_ref = match.group(1)
@@ -150,9 +294,9 @@ def _collect_image_analysis_tasks(
             continue
         if image_path in seen_paths:
             continue
-        if len(tasks) >= config.VLM_IMAGE_MAX_PER_DOC:
+        if len(tasks) >= max_per_doc:
             break
-        if should_skip_image_by_size(image_path):
+        if should_skip_image_by_size(image_path, min_width=min_width, min_height=min_height):
             continue
         tasks.append(
             ImageAnalysisTask(
@@ -171,9 +315,10 @@ def _collect_image_analysis_tasks(
 def _analyze_images(
     tasks: list[ImageAnalysisTask],
     describe_image: Callable[[Path, str], str],
+    worker_count: int | None = None,
 ) -> dict[Path, str]:
-    worker_count = min(max(1, config.VLM_IMAGE_ANALYSIS_WORKERS), 4)
-    if worker_count == 1 or len(tasks) == 1:
+    worker_count = min(max(1, worker_count if worker_count is not None else _default_worker_count()), 4)
+    if worker_count <= 1 or len(tasks) <= 1:
         results = {}
         for task in tasks:
             result = _safe_describe_image(task, describe_image)
@@ -206,13 +351,19 @@ def _safe_describe_image(
         return None
 
 
-def should_skip_image_by_size(image_path: Path) -> bool:
+def should_skip_image_by_size(
+    image_path: Path,
+    min_width: int | None = None,
+    min_height: int | None = None,
+) -> bool:
+    min_width = min_width if min_width is not None else _default_min_width()
+    min_height = min_height if min_height is not None else _default_min_height()
     try:
         with Image.open(image_path) as image:
             width, height = image.size
     except Exception:
         return False
-    return width < config.VLM_IMAGE_MIN_WIDTH or height < config.VLM_IMAGE_MIN_HEIGHT
+    return width < min_width or height < min_height
 
 
 def extract_image_context(markdown_text: str, start: int, end: int) -> str:
