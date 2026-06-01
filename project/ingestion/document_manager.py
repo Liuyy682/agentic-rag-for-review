@@ -314,7 +314,9 @@ class DocumentManager:
         if describe_fn is None:
             return markdown_text
 
-        image_root = Path(config.DOCUMENT_IMAGE_DIR)
+        image_root = Path(config.DOCUMENT_IMAGE_DIR) / md_path.stem
+        if not image_root.exists():
+            image_root = Path(config.DOCUMENT_IMAGE_DIR)  # fallback for pre-existing layouts
         enhanced = enhance_markdown_image_references(
             markdown_text,
             markdown_dir=md_path.parent,

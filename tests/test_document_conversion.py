@@ -40,7 +40,8 @@ class TestDocumentConversion(unittest.TestCase):
             temp_path = Path(temp_dir)
             output_dir = temp_path / "markdown"
 
-            for suffix in [".pdf", ".docx", ".pptx"]:
+            # .docx and .pptx still use MarkItDown
+            for suffix in [".docx", ".pptx"]:
                 source = temp_path / f"lecture{suffix}"
                 source.write_bytes(b"fake")
                 with patch("ingestion.conversion._convert_with_markitdown", return_value="# Converted\n\nBody") as convert:
@@ -49,6 +50,42 @@ class TestDocumentConversion(unittest.TestCase):
                 convert.assert_called_once_with(source)
                 self.assertEqual(md_path, output_dir / "lecture.md")
                 self.assertEqual(md_path.read_text(encoding="utf-8"), "# Converted\n\nBody")
+
+    def test_pdf_uses_pymupdf4llm_when_extract_images_enabled(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            source = temp_path / "lecture.pdf"
+            source.write_bytes(b"fake-pdf")
+            output_dir = temp_path / "markdown"
+
+            with patch(
+                "ingestion.conversion._convert_pdf_with_pymupdf4llm",
+                return_value="# PDF via pymupdf4llm\n\nContent",
+            ) as convert_pdf:
+                md_path = convert_document_to_markdown(source, output_dir, overwrite=True)
+
+            convert_pdf.assert_called_once()
+            self.assertEqual(md_path, output_dir / "lecture.md")
+            self.assertIn("pymupdf4llm", md_path.read_text(encoding="utf-8"))
+
+    def test_pdf_falls_back_to_markitdown_when_pymupdf4llm_raises(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            source = temp_path / "broken.pdf"
+            source.write_bytes(b"broken-pdf")
+            output_dir = temp_path / "markdown"
+
+            with patch(
+                "ingestion.conversion._convert_pdf_with_pymupdf4llm",
+                side_effect=RuntimeError("PDF parse error"),
+            ), patch(
+                "ingestion.conversion._convert_with_markitdown",
+                return_value="# Fallback OK",
+            ) as convert_fallback:
+                md_path = convert_document_to_markdown(source, output_dir, overwrite=True)
+
+            convert_fallback.assert_called_once_with(source)
+            self.assertEqual(md_path.read_text(encoding="utf-8"), "# Fallback OK")
 
     def test_rejects_url_zip_directory_and_empty_output(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -128,7 +128,10 @@ INGESTION_SKIP_UNCHANGED_FILES = _env_bool("INGESTION_SKIP_UNCHANGED_FILES", Tru
 INGESTION_STAGE_LOG_ENABLED = _env_bool("INGESTION_STAGE_LOG_ENABLED", True)
 
 # --- Multimodal Document Ingestion ---
+# PDF 图片提取：启用后 PDF 通过 pymupdf4llm 转换（同时完成文本+图片提取），
+# 禁用则回退到 MarkItDown 纯文本转换（不提取图片）。
 PDF_EXTRACT_IMAGES = _env_bool("PDF_EXTRACT_IMAGES", True)
+# 提取图片的输出分辨率 (DPI) 和格式 (png / jpg)，仅 pymupdf4llm 路径生效。
 PDF_IMAGE_DPI = int(os.environ.get("PDF_IMAGE_DPI", "150"))
 PDF_IMAGE_FORMAT = os.environ.get("PDF_IMAGE_FORMAT", "png")
 

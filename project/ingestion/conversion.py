@@ -47,7 +47,32 @@ def _convert_with_markitdown(document_path: Path) -> str:
     return result.text_content
 
 
-def convert_document_to_markdown(document_path, output_dir=None, overwrite: bool = False) -> Path:
+def _convert_pdf_with_pymupdf4llm(document_path: Path, image_dir: Path) -> str:
+    """Convert a PDF to Markdown using pymupdf4llm, extracting embedded images.
+
+    pymupdf4llm handles text extraction, image extraction, and writes correct
+    ``![](path)`` references into the markdown in a single call.  It also emits
+    ``--- end of page.page_number=N ---`` page separators that are recognised
+    by the cleaning pipeline.
+    """
+    import pymupdf4llm  # type: ignore[import-untyped]
+
+    return pymupdf4llm.to_markdown(
+        str(document_path),
+        write_images=True,
+        image_path=str(image_dir),
+        dpi=config.PDF_IMAGE_DPI,
+        image_format=config.PDF_IMAGE_FORMAT,
+        page_separators=True,
+    )
+
+
+def convert_document_to_markdown(
+    document_path,
+    output_dir=None,
+    overwrite: bool = False,
+    image_output_dir: Path | None = None,
+) -> Path:
     document_path = Path(document_path)
     output_dir = Path(output_dir or config.MARKDOWN_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -64,10 +89,38 @@ def convert_document_to_markdown(document_path, output_dir=None, overwrite: bool
     if md_path.exists() and not overwrite:
         return md_path
 
-    if document_path.suffix.lower() == ".md":
+    # Resolve the per-document image output directory
+    _image_output_dir = Path(image_output_dir or config.DOCUMENT_IMAGE_DIR)
+    doc_image_dir = _image_output_dir / document_path.stem
+    suffix = document_path.suffix.lower()
+
+    # --- Convert to markdown ---
+    if suffix == ".md":
         markdown_text = document_path.read_text(encoding="utf-8")
+    elif suffix == ".pdf" and getattr(config, "PDF_EXTRACT_IMAGES", True):
+        # pymupdf4llm handles text + image extraction in one call
+        try:
+            markdown_text = _convert_pdf_with_pymupdf4llm(document_path, doc_image_dir)
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning(
+                "pymupdf4llm failed for %s (%s); falling back to MarkItDown.",
+                document_path.name, exc,
+            )
+            markdown_text = _convert_with_markitdown(document_path)
     else:
         markdown_text = _convert_with_markitdown(document_path)
+
+    # --- Extract images for PPTX / DOCX (MarkItDown doesn't save them) ---
+    if suffix == ".pptx":
+        from ingestion.image_extractor import extract_images_from_pptx
+        doc_image_dir.mkdir(parents=True, exist_ok=True)
+        extract_images_from_pptx(document_path, doc_image_dir)
+    elif suffix == ".docx":
+        from ingestion.image_extractor import extract_images_from_docx, clean_docx_broken_image_refs
+        doc_image_dir.mkdir(parents=True, exist_ok=True)
+        extract_images_from_docx(document_path, doc_image_dir)
+        markdown_text = clean_docx_broken_image_refs(markdown_text, doc_image_dir)
 
     markdown_text = _normalize_markdown(markdown_text)
     if not markdown_text.strip():
