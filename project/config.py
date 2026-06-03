@@ -74,7 +74,7 @@ RERANKER_BATCH_SIZE = 8
 RERANKER_TOP_N = 40
 RERANKER_FINAL_TOP_K = 3
 RERANKER_MAX_LENGTH = 512
-RERANKER_SCORE_THRESHOLD = 0.3
+RERANKER_SCORE_THRESHOLD = 0.6
 RERANKER_LOCAL_FILES_ONLY = _env_bool("RERANKER_LOCAL_FILES_ONLY", _env_bool("HF_HUB_OFFLINE", False))
 
 # --- Model Configuration ---
@@ -149,7 +149,7 @@ VLM_IMAGE_ANALYSIS_WORKERS = int(os.environ.get("VLM_IMAGE_ANALYSIS_WORKERS", "1
 
 # --- Image Analysis Engine ---
 # 图片分析引擎: "paddleocr", "vlm", "none"
-IMAGE_ANALYSIS_ENGINE = os.environ.get("IMAGE_ANALYSIS_ENGINE", "none")
+IMAGE_ANALYSIS_ENGINE = os.environ.get("IMAGE_ANALYSIS_ENGINE", "paddleocr")
 # PaddleOCR 配置 (当 IMAGE_ANALYSIS_ENGINE=paddleocr 时生效)
 PADDLEOCR_LANG = os.environ.get("PADDLEOCR_LANG", "ch")  # ch / en / ch_en
 PADDLEOCR_USE_GPU = _env_bool("PADDLEOCR_USE_GPU", False)
