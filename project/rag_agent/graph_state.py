@@ -18,6 +18,7 @@ class State(MessagesState):
     originalQuery: str = "" 
     rewrittenQuestions: List[str] = []
     intent_type: str = ""
+    rag_task_type: str = "fact_qa"
     normalized_query: str = ""
     clarification_needed: str = ""
     task_plan: List[dict] = []
@@ -28,6 +29,7 @@ class AgentState(MessagesState):
     """State for individual task executor subgraph"""
     task_id: str = ""
     task_type: str = "rag_qa"
+    rag_task_type: str = "fact_qa"
     question: str = ""
     question_index: int = 0
     original_query: str = ""

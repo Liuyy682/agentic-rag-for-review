@@ -2,7 +2,7 @@ from .aggregation import aggregate_answers
 from .evaluation import evaluate_answer
 from .execution import collect_answer, fallback_response, knowledge_fallback_answer, task_executor
 from .history import summarize_history
-from .intent import chitchat_response, plan_rag_tasks, recognize_intent, request_clarification, rewrite_query
+from .intent import chitchat_response, plan_rag_tasks, recognize_intent, request_clarification, rewrite_query, unsupported_response
 
 __all__ = [
     "aggregate_answers",
@@ -17,4 +17,5 @@ __all__ = [
     "rewrite_query",
     "summarize_history",
     "task_executor",
+    "unsupported_response",
 ]

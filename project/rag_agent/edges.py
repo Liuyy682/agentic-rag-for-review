@@ -3,10 +3,12 @@ from langgraph.types import Send
 from .graph_state import State, AgentState
 from config import MAX_ANSWER_EVALUATION_RETRIES, MAX_ITERATIONS, MAX_TOOL_CALLS
 
-def route_after_intent(state: State) -> Literal["request_clarification", "chitchat_response", "rewrite_query"]:
+def route_after_intent(state: State) -> Literal["request_clarification", "chitchat_response", "unsupported_response", "rewrite_query"]:
     intent_type = state.get("intent_type", "")
     if intent_type == "chitchat":
         return "chitchat_response"
+    if intent_type == "unsupported":
+        return "unsupported_response"
     if intent_type == "clarification" or not state.get("questionIsClear", False):
         return "request_clarification"
     return "rewrite_query"
@@ -23,6 +25,7 @@ def route_after_task_planning(state: State):
             {
                 "task_id": task.get("task_id") or f"task_{idx + 1}",
                 "task_type": task.get("task_type", "rag_qa"),
+                "rag_task_type": task.get("rag_task_type", state.get("rag_task_type", "fact_qa")),
                 "question": task.get("query", ""),
                 "question_index": idx,
                 "original_query": task.get("original_query", state.get("originalQuery", "")),

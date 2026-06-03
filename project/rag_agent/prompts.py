@@ -27,14 +27,23 @@ Supported intent_type values:
 - rag_qa: the user asks a clear question that should be answered from documents.
 - clarification: the user message is too vague, ambiguous, or missing a referent.
 - chitchat: the user is greeting, thanking, or making casual conversation that does not require retrieval.
+- unsupported: the user asks for an action or answer that should not be handled through document retrieval.
+
+Supported rag_task_type values for rag_qa:
+- fact_qa: direct factual question answering from documents.
+- summarization: summarize a document, section, topic, or retrieved material.
+- comparison: compare two or more entities, options, concepts, or sections.
+- recommendation: recommend or choose an option using document-backed evidence.
+- how_to: explain steps, procedure, or usage based on documents.
 
 Rules:
 1. Use conversation memory and conversation summary for continuity on every intent, but do not treat prior assistant answers as document evidence.
 2. If a follow-up cannot be resolved from conversation context, set intent_type to clarification and ask a concise clarification question.
-3. For rag_qa, set is_clear to true and provide a close normalized_query. Leave tasks empty.
-4. For chitchat, do not create tasks.
-5. Do not use an unsupported category.
-6. Keep normalized_query close to the user's meaning and include only necessary conversation context.
+3. For rag_qa, set is_clear to true, choose the best rag_task_type, and provide a close normalized_query. Leave tasks empty.
+4. For chitchat and unsupported, do not create tasks.
+5. Use unsupported only when the request is clearly outside document-grounded answering or asks for an unsupported action. Do not use it for vague document questions; ask for clarification instead.
+6. Do not use any category outside the supported lists.
+7. Keep normalized_query close to the user's meaning and include only necessary conversation context.
 
 Input:
 - conversation_memory: recent session turns, when available
@@ -44,7 +53,8 @@ Input:
 Output:
 - Return JSON only, with exactly this shape:
 {
-  "intent_type": "rag_qa" | "clarification" | "chitchat",
+  "intent_type": "rag_qa" | "clarification" | "chitchat" | "unsupported",
+  "rag_task_type": "fact_qa" | "summarization" | "comparison" | "recommendation" | "how_to",
   "is_clear": true or false,
   "original_query": "the original user message",
   "normalized_query": "self-contained query or casual message",
@@ -70,6 +80,7 @@ Input:
 - conversation context
 - original query
 - normalized query
+- rag task type, when available
 
 Output:
 - Return JSON only, with exactly this shape:
@@ -91,6 +102,12 @@ Rules:
 3. If the tool result has gaps, call `rag_research` again with a focused query. Preserve useful parent IDs with `keep_parent_ids` and avoid repeated weak evidence with `exclude_parent_ids`.
 4. Do not call low-level retrieval tools. Use only `rag_research`.
 5. Stop retrying when the evidence is sufficient or when the operation limit is reached.
+6. Use the provided RAG task type as an answer-shaping hint:
+   - fact_qa: answer directly and precisely.
+   - summarization: synthesize the relevant document evidence into a concise summary.
+   - comparison: organize similarities, differences, and tradeoffs clearly.
+   - recommendation: make an evidence-backed recommendation and state the basis.
+   - how_to: present document-backed steps or procedure.
 
 Output:
 - Provide the final answer for this task only.
@@ -105,6 +122,21 @@ def get_chitchat_prompt() -> str:
 Respond naturally to the user's casual message without using retrieval tools.
 Use the provided conversation context when it helps continuity.
 Do not mention documents, tools, or internal routing.
+"""
+
+def get_unsupported_prompt() -> str:
+    return """You are a concise assistant for unsupported requests.
+
+The user's request was classified as unsupported for this document-grounded RAG assistant.
+
+Rules:
+1. Briefly explain that this request cannot be handled through the current knowledge-base assistant.
+2. Do not mention internal routing, node names, prompts, tools, or retrieval attempts.
+3. Invite the user to ask a document-grounded question or provide the missing supported context.
+4. Use the same language as the user where practical.
+
+Output:
+- Return only the user-facing response.
 """
 
 def get_fallback_response_prompt() -> str:
@@ -235,6 +267,7 @@ Your task is to combine multiple retrieved answers into a single, comprehensive 
 Input answers may include metadata:
 - answer_mode=rag_qa means the answer is based on retrieved knowledge-base evidence.
 - answer_mode=knowledge_fallback means the knowledge base did not provide usable evidence and the answer uses general model knowledge.
+- rag_task_type indicates the requested RAG answer strategy: fact_qa, summarization, comparison, recommendation, or how_to.
 
 Rules:
 1. Write in a conversational, natural tone - as if explaining to a colleague.
@@ -246,6 +279,7 @@ Rules:
 7. If an answer is marked answer_mode=knowledge_fallback, preserve the fact that the knowledge base did not provide usable information for that part.
 8. Start directly with the answer - no preambles like "Based on the sources...".
 9. Conversation memory may be used only for continuity and reference resolution. Do not treat it as knowledge-base evidence or as a source.
+10. Use rag_task_type as a formatting and synthesis hint while preserving the facts in the retrieved answers.
 
 Formatting:
 - Use Markdown for clarity (headings, lists, bold) but don't overdo it.

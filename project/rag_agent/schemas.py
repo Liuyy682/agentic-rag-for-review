@@ -1,12 +1,18 @@
 from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
+RagTaskType = Literal["fact_qa", "summarization", "comparison", "recommendation", "how_to"]
+
 class TaskSpec(BaseModel):
     task_id: str = Field(
         description="Stable task identifier such as task_1."
     )
     task_type: Literal["rag_qa"] = Field(
         description="Execution type for the task. Only rag_qa is currently dispatched to task subgraphs."
+    )
+    rag_task_type: RagTaskType = Field(
+        default="fact_qa",
+        description="RAG answer strategy for this task."
     )
     query: str = Field(
         description="Self-contained task query to execute."
@@ -24,8 +30,12 @@ class TaskSpec(BaseModel):
     )
 
 class IntentAnalysis(BaseModel):
-    intent_type: Literal["rag_qa", "clarification", "chitchat"] = Field(
+    intent_type: Literal["rag_qa", "clarification", "chitchat", "unsupported"] = Field(
         description="User intent for the current message."
+    )
+    rag_task_type: RagTaskType = Field(
+        default="fact_qa",
+        description="RAG sub-intent used only when intent_type is rag_qa."
     )
     is_clear: bool = Field(
         description="Whether the current user message can be handled without asking for clarification."
@@ -74,6 +84,7 @@ class RagResearchResult(BaseModel):
 class TaskResult(BaseModel):
     index: int = Field(description="Original task order.")
     task_id: str = Field(description="Task identifier.")
+    rag_task_type: RagTaskType = Field(default="fact_qa", description="RAG answer strategy used for this task.")
     question: str = Field(description="Executed task query.")
     answer: str = Field(description="Final task answer.")
     answer_mode: Literal["rag_qa", "knowledge_fallback"] = Field(default="rag_qa")

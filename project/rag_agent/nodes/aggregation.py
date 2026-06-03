@@ -14,12 +14,14 @@ def aggregate_answers(state: State, llm):
     formatted_answers = ""
     for i, ans in enumerate(sorted_answers, start=1):
         answer_mode = ans.get("answer_mode", "rag_qa")
+        rag_task_type = ans.get("rag_task_type", state.get("rag_task_type", "fact_qa"))
         used_knowledge_base = ans.get("used_knowledge_base", answer_mode != "knowledge_fallback")
         sources = ans.get("sources") or []
         formatted_answers += (
             f"\nAnswer {i}:\n"
             f"Question: {ans.get('question', '')}\n"
             f"answer_mode: {answer_mode}\n"
+            f"rag_task_type: {rag_task_type}\n"
             f"used_knowledge_base: {used_knowledge_base}\n"
             f"sources: {sources}\n"
             f"{ans['answer']}\n"

@@ -65,6 +65,9 @@ def format_intent_content(buffer):
 
     intent_type = data.get("intent_type", "unknown")
     lines = [f"**Intent:** `{intent_type}`"]
+    rag_task_type = data.get("rag_task_type")
+    if intent_type == "rag_qa" and rag_task_type:
+        lines.append(f"\n**RAG task type:** `{rag_task_type}`")
     if data.get("normalized_query"):
         lines.append(f"\n**Normalized query:** {data['normalized_query']}")
     if data.get("tasks"):

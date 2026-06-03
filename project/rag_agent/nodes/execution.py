@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 def task_executor(state: AgentState, llm_with_tools):
     context_summary = state.get("context_summary", "").strip()
     task_context = state.get("task_context", "").strip()
+    rag_task_type = state.get("rag_task_type") or "fact_qa"
     sys_msg = SystemMessage(content=get_task_executor_prompt())
     summary_injection = (
         [HumanMessage(content=f"[COMPRESSED CONTEXT FROM PRIOR RESEARCH]\n\n{context_summary}")]
@@ -20,12 +21,13 @@ def task_executor(state: AgentState, llm_with_tools):
         [HumanMessage(content=f"[TASK CONTEXT]\n\n{task_context}")]
         if task_context else []
     )
+    rag_task_type_injection = [HumanMessage(content=f"[RAG TASK TYPE]\n\n{rag_task_type}")]
     if not state.get("messages"):
         question = state["question"]
         logger.info("Task executor: initial research for '%s'", question[:80])
         human_msg = HumanMessage(content=question)
         force_search = HumanMessage(content="YOU MUST CALL `rag_research` before answering this task.")
-        response = llm_with_tools.invoke([sys_msg] + summary_injection + task_context_injection + [human_msg, force_search])
+        response = llm_with_tools.invoke([sys_msg] + summary_injection + task_context_injection + rag_task_type_injection + [human_msg, force_search])
         tool_calls = response.tool_calls or []
         logger.info("Task executor: LLM returned %d tool calls", len(tool_calls))
         return {
@@ -37,7 +39,7 @@ def task_executor(state: AgentState, llm_with_tools):
 
     logger.info("Task executor: iteration %d, %d messages in context",
                 state.get("iteration_count", 0) + 1, len(state["messages"]))
-    response = llm_with_tools.invoke([sys_msg] + summary_injection + task_context_injection + state["messages"])
+    response = llm_with_tools.invoke([sys_msg] + summary_injection + task_context_injection + rag_task_type_injection + state["messages"])
     tool_calls = response.tool_calls if hasattr(response, "tool_calls") else []
     logger.info("Task executor: LLM returned %d tool calls, answer length=%d",
                 len(tool_calls or []), len(response.content or ""))
@@ -115,11 +117,13 @@ def collect_answer(state: AgentState):
     is_valid = isinstance(last_message, AIMessage) and last_message.content and not last_message.tool_calls
     answer = last_message.content if is_valid else "Unable to generate an answer."
     answer_mode = state.get("answer_mode") or "rag_qa"
+    rag_task_type = state.get("rag_task_type") or "fact_qa"
     used_knowledge_base = bool(state.get("used_knowledge_base", answer_mode != "knowledge_fallback"))
     sources = [] if answer_mode == "knowledge_fallback" else _sources_from_answer(str(answer))
     task_result = {
         "index": state["question_index"],
         "task_id": state.get("task_id") or f"task_{state['question_index'] + 1}",
+        "rag_task_type": rag_task_type,
         "question": state["question"],
         "answer": answer,
         "answer_mode": answer_mode,
@@ -134,6 +138,7 @@ def collect_answer(state: AgentState):
             "tool_call_count": state.get("tool_call_count", 0),
             "iteration_count": state.get("iteration_count", 0),
             "answer_mode": answer_mode,
+            "rag_task_type": rag_task_type,
             "fallback_triggered": state.get("fallback_triggered", False),
             "fallback_reason": state.get("fallback_reason", ""),
             "retrieval_evidence_status": state.get("retrieval_evidence_status", ""),
@@ -149,6 +154,7 @@ def collect_answer(state: AgentState):
         "agent_answers": [{
             "index": state["question_index"],
             "question": state["question"],
+            "rag_task_type": rag_task_type,
             "answer": answer,
             "answer_mode": answer_mode,
             "used_knowledge_base": used_knowledge_base,

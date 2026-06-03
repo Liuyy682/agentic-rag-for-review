@@ -4,8 +4,12 @@ import re
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from ..graph_state import State
-from ..prompts import get_chitchat_prompt, get_intent_recognition_prompt, get_rewrite_query_prompt
+from ..prompts import get_chitchat_prompt, get_intent_recognition_prompt, get_rewrite_query_prompt, get_unsupported_prompt
 from ..schemas import IntentAnalysis, QueryAnalysis
+
+SUPPORTED_INTENT_TYPES = {"rag_qa", "clarification", "chitchat", "unsupported"}
+SUPPORTED_RAG_TASK_TYPES = {"fact_qa", "summarization", "comparison", "recommendation", "how_to"}
+DEFAULT_RAG_TASK_TYPE = "fact_qa"
 
 
 def _parse_intent_analysis(content: str, fallback_query: str) -> IntentAnalysis:
@@ -16,8 +20,12 @@ def _parse_intent_analysis(content: str, fallback_query: str) -> IntentAnalysis:
         raw = json.loads(match.group()) if match else {}
 
     intent_type = raw.get("intent_type") or "clarification"
-    if intent_type not in {"rag_qa", "clarification", "chitchat"}:
+    if intent_type not in SUPPORTED_INTENT_TYPES:
         intent_type = "clarification"
+
+    rag_task_type = raw.get("rag_task_type") or DEFAULT_RAG_TASK_TYPE
+    if rag_task_type not in SUPPORTED_RAG_TASK_TYPES:
+        rag_task_type = DEFAULT_RAG_TASK_TYPE
 
     tasks = raw.get("tasks") or []
     if not isinstance(tasks, list):
@@ -25,6 +33,7 @@ def _parse_intent_analysis(content: str, fallback_query: str) -> IntentAnalysis:
 
     return IntentAnalysis(
         intent_type=intent_type,
+        rag_task_type=rag_task_type,
         is_clear=bool(raw.get("is_clear", False)),
         original_query=str(raw.get("original_query") or fallback_query),
         normalized_query=str(raw.get("normalized_query") or fallback_query),
@@ -95,14 +104,30 @@ def recognize_intent(state: State, llm):
     response_message = llm.with_config(temperature=0.1).invoke([SystemMessage(content=get_intent_recognition_prompt()), HumanMessage(content=context_section)])
     response = _parse_intent_analysis(str(response_message.content), last_message.content)
     intent_type = response.intent_type
+    rag_task_type = response.rag_task_type
     is_rag_intent = intent_type == "rag_qa" and response.is_clear
+    original_query = (state.get("originalQuery") or last_message.content) if is_clarification_followup else last_message.content
 
     if is_rag_intent:
         return {
             "questionIsClear": True,
             "intent_type": intent_type,
-            "originalQuery": state.get("originalQuery") or last_message.content if is_clarification_followup else last_message.content,
+            "rag_task_type": rag_task_type,
+            "originalQuery": original_query,
             "normalized_query": response.normalized_query,
+            "clarification_needed": "",
+            "task_plan": [],
+            "task_results": [{"__reset__": True}],
+            "agent_answers": [{"__reset__": True}],
+        }
+
+    if intent_type == "unsupported":
+        return {
+            "questionIsClear": True,
+            "intent_type": "unsupported",
+            "rag_task_type": "",
+            "originalQuery": original_query,
+            "normalized_query": response.normalized_query or last_message.content,
             "clarification_needed": "",
             "task_plan": [],
             "task_results": [{"__reset__": True}],
@@ -113,7 +138,8 @@ def recognize_intent(state: State, llm):
         return {
             "questionIsClear": True,
             "intent_type": "chitchat",
-            "originalQuery": state.get("originalQuery") or last_message.content if is_clarification_followup else last_message.content,
+            "rag_task_type": "",
+            "originalQuery": original_query,
             "normalized_query": response.normalized_query or last_message.content,
             "clarification_needed": "",
             "task_plan": [],
@@ -125,6 +151,7 @@ def recognize_intent(state: State, llm):
     return {
         "questionIsClear": False,
         "intent_type": "clarification",
+        "rag_task_type": "",
         "clarification_needed": clarification,
         "messages": [AIMessage(content=clarification)],
         "task_plan": [],
@@ -139,6 +166,7 @@ def rewrite_query(state: State, llm):
         f"Conversation Context:\n{conversation_context or 'None'}\n\n"
         f"Original Query:\n{state.get('originalQuery', query)}\n\n"
         f"Normalized Query:\n{query}\n"
+        f"RAG Task Type:\n{state.get('rag_task_type') or DEFAULT_RAG_TASK_TYPE}\n"
     )
     response_message = llm.with_config(temperature=0.1).invoke([
         SystemMessage(content=get_rewrite_query_prompt()),
@@ -156,10 +184,12 @@ def rewrite_query(state: State, llm):
         }
 
     questions = analysis.questions[:3]
+    rag_task_type = state.get("rag_task_type") or DEFAULT_RAG_TASK_TYPE
     tasks = [
         {
             "task_id": f"task_{idx + 1}",
             "task_type": "rag_qa",
+            "rag_task_type": rag_task_type,
             "query": question,
             "original_query": state.get("originalQuery", question),
             "context": state.get("conversation_summary", ""),
@@ -192,6 +222,7 @@ def plan_rag_tasks(state: State):
     task = {
         "task_id": "task_1",
         "task_type": "rag_qa",
+        "rag_task_type": state.get("rag_task_type") or DEFAULT_RAG_TASK_TYPE,
         "query": query,
         "original_query": state.get("originalQuery", query),
         "context": state.get("conversation_summary", ""),
@@ -205,4 +236,13 @@ def chitchat_response(state: State, llm):
     conversation_context = _conversation_context(state)
     prompt_input = (f"Conversation Context:\n{conversation_context}\n\n" if conversation_context else "") + f"User Query:\n{query}"
     response = llm.invoke([SystemMessage(content=get_chitchat_prompt()), HumanMessage(content=prompt_input)])
+    return {"messages": [AIMessage(content=response.content)]}
+
+
+def unsupported_response(state: State, llm):
+    query = state.get("normalized_query") or state.get("originalQuery") or state["messages"][-1].content
+    response = llm.invoke([
+        SystemMessage(content=get_unsupported_prompt()),
+        HumanMessage(content=f"User Query:\n{query}"),
+    ])
     return {"messages": [AIMessage(content=response.content)]}
