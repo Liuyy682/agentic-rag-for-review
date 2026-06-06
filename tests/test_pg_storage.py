@@ -161,3 +161,78 @@ def test_embedding_dimension_mismatch_is_clear(monkeypatch):
             cur.execute("DROP TABLE IF EXISTS parent_chunks")
     postgres.reset_pool_for_tests()
     postgres.ensure_schema()
+
+
+def test_vector_store_edge_cases(pg_storage):
+    vector, _ = pg_storage
+
+    # Empty-input guards.
+    assert vector.add_documents([]) == []
+    assert vector.delete_by_parent_ids([]) is None
+    assert vector.load_child_neighbors([]) == []
+    # Anchors with no usable parent_id/chunk_index normalize to empty.
+    assert vector.load_child_neighbors([{"parent_id": "", "chunk_index": "x"}]) == []
+
+    docs = [
+        Document(
+            page_content="alpha 机器学习 concept",
+            metadata={
+                "chunk_id": "child_alpha",
+                "parent_id": "parent_1",
+                "doc_id": "doc",
+                "chunk_index": 1,
+                "source": "doc.md",
+                "source_file": "doc.md",
+                "page_numbers": [1],
+                "slide_title": "Intro",
+            },
+        ),
+        Document(
+            page_content="beta 数据库 concept",
+            metadata={
+                "chunk_id": "child_beta",
+                "parent_id": "parent_1",
+                "doc_id": "doc",
+                "chunk_index": 2,
+                "source": "doc.md",
+                "source_file": "doc.md",
+            },
+        ),
+    ]
+    vector.add_documents(docs)
+
+    # similarity_search delegates to dense_search; slide_title round-trips via _row_to_doc.
+    top = vector.similarity_search("alpha query", k=1)
+    assert top[0].metadata["chunk_id"] == "child_alpha"
+    assert top[0].metadata["slide_title"] == "Intro"
+
+    # sparse_search with a whitespace-only query yields an empty ts_query → no rows.
+    assert vector.sparse_search("   ", k=2) == []
+
+    # rrf_search fuses dense + sparse rankings.
+    fused = vector.rrf_search("机器学习", dense_k=5, sparse_k=5, fused_k=5, rrf_k=60)
+    assert {doc.metadata["chunk_id"] for doc in fused} <= {"child_alpha", "child_beta"}
+
+    # Overlapping neighbor windows dedupe repeated child rows.
+    neighbors = vector.load_child_neighbors(
+        [
+            {"parent_id": "parent_1", "chunk_index": 1},
+            {"parent_id": "parent_1", "chunk_index": 2},
+        ],
+        window=1,
+    )
+    child_ids = [row["metadata"]["chunk_id"] for row in neighbors]
+    assert sorted(child_ids) == ["child_alpha", "child_beta"]
+    assert len(child_ids) == len(set(child_ids))
+
+    # delete_by_parent_ids removes the matching rows.
+    vector.delete_by_parent_ids(["parent_1"])
+    assert vector.dense_search("alpha query", k=1) == []
+
+
+def test_make_ts_query_fallback_without_jieba_tokens():
+    from storage import pg_vector_store
+
+    # A query that jieba tokenizes to nothing usable falls back to space→" & ".
+    assert pg_vector_store._make_ts_query("   ") == ""
+    assert pg_vector_store._make_tsvector_text("") == ""

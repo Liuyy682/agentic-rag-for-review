@@ -1,5 +1,6 @@
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -32,15 +33,16 @@ class FakeRagSystem:
         self.deleted_thread = None
         self.course_scope = None
         self.observability = SimpleNamespace(flush=lambda: None)
+        self.chat_lock = threading.Lock()
 
     def set_course_scope(self, source_files=None):
         self.course_scope = source_files
 
-    def get_config(self):
-        return {"configurable": {"thread_id": self.thread_id}}
+    def get_config(self, thread_id=None):
+        return {"configurable": {"thread_id": thread_id or self.thread_id}}
 
-    def reset_thread(self):
-        self.deleted_thread = self.thread_id
+    def reset_thread(self, thread_id=None):
+        self.deleted_thread = thread_id or self.thread_id
         self.thread_id = "session_2"
 
 

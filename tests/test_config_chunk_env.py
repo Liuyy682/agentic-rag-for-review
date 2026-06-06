@@ -23,8 +23,8 @@ class TestChunkConfigEnvironment(unittest.TestCase):
                 os.environ.pop(name, None)
             importlib.reload(config)
 
-        self.assertEqual(config.CHILD_CHUNK_SIZE, 500)
-        self.assertEqual(config.CHILD_CHUNK_OVERLAP, 100)
+        self.assertEqual(config.CHILD_CHUNK_SIZE, 300)
+        self.assertEqual(config.CHILD_CHUNK_OVERLAP, 60)
         self.assertEqual(config.MIN_PARENT_SIZE, 2000)
         self.assertEqual(config.MAX_PARENT_SIZE, 4000)
 
