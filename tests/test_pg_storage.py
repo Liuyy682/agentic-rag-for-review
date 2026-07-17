@@ -236,3 +236,13 @@ def test_make_ts_query_fallback_without_jieba_tokens():
     # A query that jieba tokenizes to nothing usable falls back to space→" & ".
     assert pg_vector_store._make_ts_query("   ") == ""
     assert pg_vector_store._make_tsvector_text("") == ""
+
+
+def test_bounded_varchar_preserves_short_values_and_truncates_long_metadata():
+    from storage import pg_vector_store
+
+    assert pg_vector_store._bounded_varchar("short") == "short"
+    assert pg_vector_store._bounded_varchar(None) is None
+    value = pg_vector_store._bounded_varchar("x" * 600)
+    assert len(value) == 500
+    assert value.endswith("...")

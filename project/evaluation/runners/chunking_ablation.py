@@ -456,12 +456,24 @@ def read_hf_parquet(filename: str) -> pd.DataFrame:
 def read_hf_parquet_records(repo_id: str, parquet_name_prefix: str) -> list[dict]:
     import pandas as pd
     from huggingface_hub import hf_hub_download, list_repo_files
+    from huggingface_hub.errors import OfflineModeIsEnabled
 
-    filenames = [
-        filename
-        for filename in list_repo_files(repo_id=repo_id, repo_type="dataset")
-        if filename.endswith(".parquet") and Path(filename).name.startswith(parquet_name_prefix)
-    ]
+    try:
+        filenames = [
+            filename
+            for filename in list_repo_files(repo_id=repo_id, repo_type="dataset")
+            if filename.endswith(".parquet") and Path(filename).name.startswith(parquet_name_prefix)
+        ]
+    except OfflineModeIsEnabled:
+        cached = cached_hf_parquet_paths(repo_id, parquet_name_prefix)
+        if not cached:
+            raise FileNotFoundError(
+                f"No cached parquet file starting with {parquet_name_prefix!r} found in {repo_id}. "
+                "Disable HF_HUB_OFFLINE once to populate the benchmark cache."
+            )
+        frames = [pd.read_parquet(path) for path in cached]
+        frame = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+        return frame.to_dict("records")
     if not filenames:
         raise FileNotFoundError(f"No parquet file starting with {parquet_name_prefix!r} found in {repo_id}.")
 
@@ -476,6 +488,16 @@ def read_hf_parquet_records(repo_id: str, parquet_name_prefix: str) -> list[dict
         frames.append(pd.read_parquet(path))
     frame = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
     return frame.to_dict("records")
+
+
+def cached_hf_parquet_paths(repo_id: str, parquet_name_prefix: str) -> list[Path]:
+    cache_dir = Path(getattr(config, "HF_CACHE_DIR", ".cache/huggingface"))
+    repo_dir = cache_dir / f"datasets--{repo_id.replace('/', '--')}"
+    return sorted(
+        path
+        for path in repo_dir.glob("snapshots/*/**/*.parquet")
+        if path.name.startswith(parquet_name_prefix)
+    )
 
 
 def build_dapr_source_docs(corpus: pd.DataFrame) -> list[SourceDoc]:

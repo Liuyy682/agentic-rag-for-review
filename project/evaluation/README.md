@@ -144,6 +144,157 @@ RAGBench question + RAGBench documents
 
 如果两个方案 `balanced_score` 差距小于 `0.02`，优先选 `context_chars@5` 和 `index_chunks` 更小的方案。
 
+### 5. 中文端到端基准：T2Retrieval 与 CRUD-RAG
+
+统一入口 `chinese_benchmark_runner.py` 会把候选文档写成隔离的运行时 Markdown，随后经过项目真实的文档转换、清洗、分块、PostgreSQL/pgvector、RRF 和 reranker 链路。T2Retrieval 只评检索；CRUD-RAG 只使用 `questanswer_1doc`、`questanswer_2docs`、`questanswer_3docs`，并额外运行答案生成和 RAGAS。
+
+评测会清空评测数据库，因此必须配置与业务数据库不同的连接：
+
+```bash
+export EVAL_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/agentic_rag_eval"
+```
+
+如果 `EVAL_DATABASE_URL` 缺失或与 `DATABASE_URL` 相同，runner 会在创建存储和清空数据之前拒绝运行。
+
+T2Retrieval 20 条冒烟测试：
+
+```bash
+.venv/bin/python project/evaluation/runners/chinese_benchmark_runner.py \
+  --dataset t2_retrieval \
+  --limit 20 \
+  --distractor-docs 120 \
+  --top-k 10 \
+  --output-dir runtime/evaluation_reports/chinese_benchmarks
+```
+
+T2Retrieval 200 条正式检索测试：
+
+```bash
+.venv/bin/python project/evaluation/runners/chinese_benchmark_runner.py \
+  --dataset t2_retrieval \
+  --limit 200 \
+  --distractor-docs 1000 \
+  --top-k 10 \
+  --output-dir runtime/evaluation_reports/chinese_benchmarks
+```
+
+CRUD-RAG 需要先准备官方仓库：
+
+```bash
+git clone https://github.com/IAAR-Shanghai/CRUD_RAG.git runtime/datasets/CRUD_RAG
+```
+
+CRUD-RAG 20 条冒烟测试可先使用标准答案验证摄取和检索，不产生模型调用费用：
+
+```bash
+.venv/bin/python project/evaluation/runners/chinese_benchmark_runner.py \
+  --dataset crud_rag \
+  --crud-root runtime/datasets/CRUD_RAG \
+  --limit 20 \
+  --distractor-docs 120 \
+  --answer-mode reference \
+  --skip-ragas \
+  --output-dir runtime/evaluation_reports/chinese_benchmarks
+```
+
+正式的 200 条 Agent + RAGAS 测试：
+
+```bash
+.venv/bin/python project/evaluation/runners/chinese_benchmark_runner.py \
+  --dataset crud_rag \
+  --crud-root runtime/datasets/CRUD_RAG \
+  --limit 200 \
+  --distractor-docs 1000 \
+  --answer-mode agent \
+  --top-k 10 \
+  --output-dir runtime/evaluation_reports/chinese_benchmarks
+```
+
+`agent` 和 `direct` 模式需要按下方 Environment 小节配置答案模型和 API key；RAGAS 还需要配置 judge 模型。把上述任一命令的 `--distractor-docs` 改为 `0` 即为完整语料测试。T2Retrieval 约 11.8 万篇文档，CRUD-RAG 约 8 万篇文档，首次摄取可能需要数小时。抽样候选池和完整语料的结果不能直接比较；metadata 中会记录 `candidate_document_count`、`distractor_docs` 和 `uses_full_corpus`。
+
+T2Retrieval 与 CRUD-RAG 的任务目标不同，报告必须分别引用，不能把两者混合聚合成一个“中文 RAG 总分”。CRUD-RAG 报告还会按 1、2、3 篇 gold 文档的问题分别汇总，避免单文档问题掩盖多文档问题表现。
+
+### 中文 baseline 与组件增益实验
+
+四个预定义配置使用完全相同的题目、候选池、分块和模型，只逐项启用检索组件：
+
+| Label | Retrieval | Reranker | Context policy |
+|---|---|---:|---|
+| `B0_dense` | dense | off | child |
+| `B1_rrf` | RRF | off | child |
+| `B2_rerank` | RRF | on | child |
+| `B3_full` | RRF | on | adaptive |
+
+检索实验统一使用 `--top-k 10 --reranker-final-top-k 10`，保证 `NDCG@10` 和 `Recall@10` 确实基于 10 条结果。生成实验单独使用 `--top-k 3 --reranker-final-top-k 3 --context-top-k 3`，避免扩大 Agent 的生产上下文预算。
+
+以 T2 正式 B0 为例：
+
+```bash
+.venv/bin/python project/evaluation/runners/chinese_benchmark_runner.py \
+  --dataset t2_retrieval --limit 200 --offset 0 --distractor-docs 1000 \
+  --top-k 10 --run-label B0_dense \
+  --retrieval-mode dense --no-reranker --reranker-final-top-k 10 \
+  --context-policy child --context-top-k 3 \
+  --output-dir runtime/evaluation_reports/chinese_baseline/t2
+```
+
+其余配置替换为：
+
+```text
+B1_rrf:    --retrieval-mode rrf --no-reranker --reranker-final-top-k 10 --context-policy child
+B2_rerank: --retrieval-mode rrf --reranker --reranker-final-top-k 10 --reranker-score-threshold 0.6 --context-policy child
+B3_full:   --retrieval-mode rrf --reranker --reranker-final-top-k 10 --reranker-score-threshold 0.6 --context-policy adaptive
+```
+
+CRUD 检索消融沿用相同四组参数，并增加：
+
+```text
+--dataset crud_rag --crud-root runtime/datasets/CRUD_RAG --answer-mode reference --skip-ragas
+```
+
+选择最终候选后，只对 `B0_dense` 和最终候选运行生成评测。direct 示例：
+
+```bash
+.venv/bin/python project/evaluation/runners/chinese_benchmark_runner.py \
+  --dataset crud_rag --crud-root runtime/datasets/CRUD_RAG \
+  --limit 200 --offset 0 --distractor-docs 1000 \
+  --top-k 3 --context-top-k 3 --answer-mode direct \
+  --run-label B0_dense_direct \
+  --retrieval-mode dense --no-reranker --reranker-final-top-k 3 \
+  --context-policy child \
+  --output-dir runtime/evaluation_reports/chinese_baseline/crud_generation
+```
+
+把 `--answer-mode direct` 改成 `agent` 即运行最终 Agent 链路。最终候选必须使用它在检索消融中胜出的 retrieval、reranker 和 context 参数；不要默认把 `B3_full` 当成胜者。
+
+两个兼容 run 使用配对 Bootstrap 比较：
+
+```bash
+.venv/bin/python project/evaluation/runners/chinese_benchmark_compare.py \
+  --baseline runtime/evaluation_reports/chinese_baseline/t2/eval_runs/<B0_RUN> \
+  --candidate runtime/evaluation_reports/chinese_baseline/t2/eval_runs/<CANDIDATE_RUN> \
+  --bootstrap-samples 10000 --seed 42 \
+  --output-dir runtime/evaluation_reports/chinese_baseline/comparisons/t2_B0_vs_candidate
+```
+
+比较器输出 `experiment_summary.json`、`experiment_summary.csv` 和 `experiment_report.md`。T2 以 `NDCG@10` 为主指标，CRUD 以 `Recall@10` 为主指标；绝对提升至少 `0.02` 且 95% CI 下界大于 0 才标记“检索得到有效提升”。RAGAS 至少两项 CI 下界大于 0、其余项回退不超过 `0.01`，才标记“端到端质量得到提升”。抽样候选池结果始终标记为非官方完整语料成绩。
+
+为 B1/B2/B3 分别生成 T2 和 CRUD 对照报告后，用选择器执行预先约定的综合分、回退约束和成本 tie-break：
+
+```bash
+.venv/bin/python project/evaluation/runners/chinese_benchmark_select.py \
+  --t2-comparison B1_rrf=runtime/evaluation_reports/chinese_baseline/comparisons/t2_B1/experiment_summary.json \
+  --t2-comparison B2_rerank=runtime/evaluation_reports/chinese_baseline/comparisons/t2_B2/experiment_summary.json \
+  --t2-comparison B3_full=runtime/evaluation_reports/chinese_baseline/comparisons/t2_B3/experiment_summary.json \
+  --crud-comparison B1_rrf=runtime/evaluation_reports/chinese_baseline/comparisons/crud_B1/experiment_summary.json \
+  --crud-comparison B2_rerank=runtime/evaluation_reports/chinese_baseline/comparisons/crud_B2/experiment_summary.json \
+  --crud-comparison B3_full=runtime/evaluation_reports/chinese_baseline/comparisons/crud_B3/experiment_summary.json \
+  --bootstrap-samples 10000 --seed 42 \
+  --output-dir runtime/evaluation_reports/chinese_baseline/final_selection
+```
+
+选择器重新从原始逐题结果对综合主分数进行联合 Bootstrap，输出 `final_selection.json` 和 `final_selection.md`。只有通过单数据集与 CRUD 多文档回退约束的配置才可能成为最终候选。
+
 ## Validity And Warnings
 
 新增输出：

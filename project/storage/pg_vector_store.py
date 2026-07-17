@@ -57,10 +57,10 @@ class PgVectorManager:
                     child_id = metadata.get("chunk_id") or metadata.get("child_id") or f"child_{index}"
                     parent_id = metadata.get("parent_id") or ""
                     doc_id = metadata.get("doc_id") or metadata.get("source_file") or metadata.get("source") or ""
-                    source = metadata.get("source")
-                    source_file = metadata.get("source_file")
+                    source = _bounded_varchar(metadata.get("source"))
+                    source_file = _bounded_varchar(metadata.get("source_file"))
                     page_numbers = metadata.get("page_numbers")
-                    slide_title = metadata.get("slide_title")
+                    slide_title = _bounded_varchar(metadata.get("slide_title"))
                     cur.execute(
                         """
                         INSERT INTO child_chunks (
@@ -249,6 +249,13 @@ class PgVectorManager:
             k=rrf_k,
             top_k=fused_k,
         )
+
+
+def _bounded_varchar(value, limit: int = 500):
+    if value is None:
+        return None
+    text = str(value)
+    return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
 def _row_to_doc(row) -> Document:
