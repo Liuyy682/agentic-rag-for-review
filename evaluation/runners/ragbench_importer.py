@@ -7,9 +7,7 @@ from typing import Any, Dict, Iterable, List
 
 import requests
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
-if str(PROJECT_DIR) not in sys.path:
-    sys.path.insert(0, str(PROJECT_DIR))
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 from evaluation.io import write_jsonl
 from evaluation.ragbench_keys import document_id_from_sentence_key
@@ -195,11 +193,11 @@ def main() -> None:
     parser.add_argument("--page-size", type=int, default=25)
     parser.add_argument(
         "--output-dataset",
-        default=str(PROJECT_DIR / "evaluation" / "datasets" / "ragbench_eval_questions.jsonl"),
+        default=str(REPO_ROOT / "evaluation" / "datasets" / "ragbench_eval_questions.jsonl"),
     )
     parser.add_argument(
         "--output-contexts",
-        default=str(PROJECT_DIR / "evaluation" / "datasets" / "ragbench_contexts.jsonl"),
+        default=str(REPO_ROOT / "evaluation" / "datasets" / "ragbench_contexts.jsonl"),
     )
     args = parser.parse_args()
 

@@ -2,9 +2,7 @@ import argparse
 import sys
 from pathlib import Path
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
-if str(PROJECT_DIR) not in sys.path:
-    sys.path.insert(0, str(PROJECT_DIR))
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 from evaluation.io import read_metrics_csv
 from evaluation.reports import write_compare_report

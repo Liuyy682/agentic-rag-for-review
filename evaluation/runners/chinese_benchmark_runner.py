@@ -14,9 +14,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
-if str(PROJECT_DIR) not in sys.path:
-    sys.path.insert(0, str(PROJECT_DIR))
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 from agentic_rag import config
 from agentic_rag.core.rag_system import RAGSystem
@@ -684,7 +682,7 @@ def current_git_commit() -> str | None:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
-            cwd=PROJECT_DIR.parent,
+            cwd=REPO_ROOT,
             check=True,
             capture_output=True,
             text=True,

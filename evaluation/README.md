@@ -16,7 +16,7 @@ validity_summary.json
 入口：
 
 ```bash
-.venv/bin/python project/evaluation/runners/ragbench_eval_runner.py \
+.venv/bin/python -m evaluation.runners.ragbench_eval_runner \
   --subset covidqa \
   --split test \
   --limit 50 \
@@ -52,8 +52,8 @@ RAGBench question + RAGBench documents
 入口：
 
 ```bash
-.venv/bin/python project/evaluation/runners/retrieval_eval_runner.py \
-  --dataset project/evaluation/datasets/eval_questions.jsonl \
+.venv/bin/python -m evaluation.runners.retrieval_eval_runner \
+  --dataset evaluation/datasets/eval_questions.jsonl \
   --top-k 10 \
   --output-dir runtime/evaluation_reports/local_retrieval
 ```
@@ -61,8 +61,8 @@ RAGBench question + RAGBench documents
 或端到端生成：
 
 ```bash
-.venv/bin/python project/evaluation/runners/ragas_eval_runner.py \
-  --dataset project/evaluation/datasets/eval_questions.jsonl \
+.venv/bin/python -m evaluation.runners.ragas_eval_runner \
+  --dataset evaluation/datasets/eval_questions.jsonl \
   --top-k 10 \
   --output-dir runtime/evaluation_reports/local_ragas
 ```
@@ -71,7 +71,7 @@ RAGBench question + RAGBench documents
 
 注意：
 
-- 当前仓库里的 `project/evaluation/datasets/eval_questions.jsonl` 默认为空，不能直接用于效果结论；`eval_questions.sample.jsonl` 只是中文占位样例。
+- 当前仓库里的 `evaluation/datasets/eval_questions.jsonl` 默认为空，不能直接用于效果结论；`eval_questions.sample.jsonl` 只是中文占位样例。
 - `eval_questions.jsonl` 必须包含真实 `gold_parent_ids` 或 `gold_child_ids`，否则该样本不会参与主检索指标均值。
 - 如果 reranker 最终返回数小于配置的 `top_k`，报告会写出 `actual_results@k` 和 `insufficient_results_for_k` warning。
 - `score_threshold` 在 `rrf`、`dense`、`sparse` 模式下目前不生效；报告会写 `score_threshold_ignored` warning。
@@ -81,7 +81,7 @@ RAGBench question + RAGBench documents
 入口：
 
 ```bash
-.venv/bin/python project/evaluation/runners/ragbench_local_rag_runner.py \
+.venv/bin/python -m evaluation.runners.ragbench_local_rag_runner \
   --subset covidqa \
   --split test \
   --limit 50 \
@@ -108,7 +108,7 @@ RAGBench question + RAGBench documents
 入口：
 
 ```bash
-.venv/bin/python project/evaluation/runners/chunking_ablation.py \
+.venv/bin/python -m evaluation.runners.chunking_ablation \
   --source-contexts runtime/evaluation_reports/.../ragbench_covidqa_test_200_source_contexts.jsonl \
   --output-dir runtime/evaluation_reports/chunking_ablation
 ```
@@ -122,7 +122,7 @@ RAGBench question + RAGBench documents
 如果本地 gold 集还没准备好，可以先用 Hugging Face 的中文检索基准 [`C-MTEB/T2Retrieval`](https://huggingface.co/datasets/C-MTEB/T2Retrieval) 和 [`C-MTEB/T2Retrieval-qrels`](https://huggingface.co/datasets/C-MTEB/T2Retrieval-qrels) 做分块消融：
 
 ```bash
-.venv/bin/python project/evaluation/runners/chunking_ablation.py \
+.venv/bin/python -m evaluation.runners.chunking_ablation \
   --dataset t2_retrieval \
   --limit 100 \
   --offset 0 \
@@ -159,7 +159,7 @@ export EVAL_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/agentic_
 T2Retrieval 20 条冒烟测试：
 
 ```bash
-.venv/bin/python project/evaluation/runners/chinese_benchmark_runner.py \
+.venv/bin/python -m evaluation.runners.chinese_benchmark_runner \
   --dataset t2_retrieval \
   --limit 20 \
   --distractor-docs 120 \
@@ -170,7 +170,7 @@ T2Retrieval 20 条冒烟测试：
 T2Retrieval 200 条正式检索测试：
 
 ```bash
-.venv/bin/python project/evaluation/runners/chinese_benchmark_runner.py \
+.venv/bin/python -m evaluation.runners.chinese_benchmark_runner \
   --dataset t2_retrieval \
   --limit 200 \
   --distractor-docs 1000 \
@@ -187,7 +187,7 @@ git clone https://github.com/IAAR-Shanghai/CRUD_RAG.git runtime/datasets/CRUD_RA
 CRUD-RAG 20 条冒烟测试可先使用标准答案验证摄取和检索，不产生模型调用费用：
 
 ```bash
-.venv/bin/python project/evaluation/runners/chinese_benchmark_runner.py \
+.venv/bin/python -m evaluation.runners.chinese_benchmark_runner \
   --dataset crud_rag \
   --crud-root runtime/datasets/CRUD_RAG \
   --limit 20 \
@@ -200,7 +200,7 @@ CRUD-RAG 20 条冒烟测试可先使用标准答案验证摄取和检索，不�
 正式的 200 条 Agent + RAGAS 测试：
 
 ```bash
-.venv/bin/python project/evaluation/runners/chinese_benchmark_runner.py \
+.venv/bin/python -m evaluation.runners.chinese_benchmark_runner \
   --dataset crud_rag \
   --crud-root runtime/datasets/CRUD_RAG \
   --limit 200 \
@@ -230,7 +230,7 @@ T2Retrieval 与 CRUD-RAG 的任务目标不同，报告必须分别引用，不�
 以 T2 正式 B0 为例：
 
 ```bash
-.venv/bin/python project/evaluation/runners/chinese_benchmark_runner.py \
+.venv/bin/python -m evaluation.runners.chinese_benchmark_runner \
   --dataset t2_retrieval --limit 200 --offset 0 --distractor-docs 1000 \
   --top-k 10 --run-label B0_dense \
   --retrieval-mode dense --no-reranker --reranker-final-top-k 10 \
@@ -255,7 +255,7 @@ CRUD 检索消融沿用相同四组参数，并增加：
 选择最终候选后，只对 `B0_dense` 和最终候选运行生成评测。direct 示例：
 
 ```bash
-.venv/bin/python project/evaluation/runners/chinese_benchmark_runner.py \
+.venv/bin/python -m evaluation.runners.chinese_benchmark_runner \
   --dataset crud_rag --crud-root runtime/datasets/CRUD_RAG \
   --limit 200 --offset 0 --distractor-docs 1000 \
   --top-k 3 --context-top-k 3 --answer-mode direct \
@@ -270,7 +270,7 @@ CRUD 检索消融沿用相同四组参数，并增加：
 两个兼容 run 使用配对 Bootstrap 比较：
 
 ```bash
-.venv/bin/python project/evaluation/runners/chinese_benchmark_compare.py \
+.venv/bin/python -m evaluation.runners.chinese_benchmark_compare \
   --baseline runtime/evaluation_reports/chinese_baseline/t2/eval_runs/<B0_RUN> \
   --candidate runtime/evaluation_reports/chinese_baseline/t2/eval_runs/<CANDIDATE_RUN> \
   --bootstrap-samples 10000 --seed 42 \
@@ -282,7 +282,7 @@ CRUD 检索消融沿用相同四组参数，并增加：
 为 B1/B2/B3 分别生成 T2 和 CRUD 对照报告后，用选择器执行预先约定的综合分、回退约束和成本 tie-break：
 
 ```bash
-.venv/bin/python project/evaluation/runners/chinese_benchmark_select.py \
+.venv/bin/python -m evaluation.runners.chinese_benchmark_select \
   --t2-comparison B1_rrf=runtime/evaluation_reports/chinese_baseline/comparisons/t2_B1/experiment_summary.json \
   --t2-comparison B2_rerank=runtime/evaluation_reports/chinese_baseline/comparisons/t2_B2/experiment_summary.json \
   --t2-comparison B3_full=runtime/evaluation_reports/chinese_baseline/comparisons/t2_B3/experiment_summary.json \

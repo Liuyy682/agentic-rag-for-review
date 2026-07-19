@@ -4,9 +4,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
-if str(PROJECT_DIR) not in sys.path:
-    sys.path.insert(0, str(PROJECT_DIR))
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 from agentic_rag import config
 from agentic_rag.core.rag_system import RAGSystem
@@ -154,7 +152,7 @@ def invoke_rag_answer(rag_system: RAGSystem, question: str) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run end-to-end RAG output capture and optional RAGAS evaluation.")
-    parser.add_argument("--dataset", default=str(PROJECT_DIR / "evaluation" / "datasets" / "eval_questions.jsonl"))
+    parser.add_argument("--dataset", default=str(REPO_ROOT / "evaluation" / "datasets" / "eval_questions.jsonl"))
     parser.add_argument("--output-dir", default=config.EVALUATION_REPORTS_DIR)
     parser.add_argument("--run-label", default="baseline_ragas")
     parser.add_argument("--dataset-version", default="eval_v1")

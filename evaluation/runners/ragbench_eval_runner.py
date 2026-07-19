@@ -5,10 +5,9 @@ import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List
+from agentic_rag import config
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
-if str(PROJECT_DIR) not in sys.path:
-    sys.path.insert(0, str(PROJECT_DIR))
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 from evaluation.io import read_jsonl, read_metrics_csv, write_jsonl, write_metrics_csv
 from evaluation.llm_config import answer_model as resolve_answer_model

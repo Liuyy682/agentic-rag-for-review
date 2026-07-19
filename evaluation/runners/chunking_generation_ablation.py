@@ -11,9 +11,7 @@ from typing import Any
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
-if str(PROJECT_DIR) not in sys.path:
-    sys.path.insert(0, str(PROJECT_DIR))
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 from evaluation.io import write_jsonl, write_metrics_csv
 from evaluation.metrics.ragas_metrics import build_ragas_error_cases, run_ragas_metrics

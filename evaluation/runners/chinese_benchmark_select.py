@@ -7,9 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any, Sequence
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
-if str(PROJECT_DIR) not in sys.path:
-    sys.path.insert(0, str(PROJECT_DIR))
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 from evaluation.runners.chinese_benchmark_compare import percentile, read_json, read_jsonl
 

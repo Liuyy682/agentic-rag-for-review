@@ -8,9 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence
 
-PROJECT_DIR = Path(__file__).resolve().parents[2]
-if str(PROJECT_DIR) not in sys.path:
-    sys.path.insert(0, str(PROJECT_DIR))
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 from agentic_rag import config
 from agentic_rag.core.rag_system import RAGSystem
@@ -448,7 +446,7 @@ def _normalize_text(value: Any) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run RAGBench retrieval eval through the project's ingestion pipeline.")
-    parser.add_argument("--source-contexts", default=str(PROJECT_DIR / "evaluation" / "datasets" / "ragbench_covidqa_test_200_source_contexts.jsonl"))
+    parser.add_argument("--source-contexts", default=str(REPO_ROOT / "evaluation" / "datasets" / "ragbench_covidqa_test_200_source_contexts.jsonl"))
     parser.add_argument("--output-dir", default=str(Path(config.EVALUATION_REPORTS_DIR) / "ragbench_project_ingestion"))
     parser.add_argument("--run-label", default="ragbench_project_ingestion")
     parser.add_argument("--limit", type=int, default=200)

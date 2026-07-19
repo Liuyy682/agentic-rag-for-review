@@ -16,6 +16,5 @@ __pycache__/
 .github/
 .codex
 notebooks/
-project/.env
-project/evaluation/datasets/ragbench_*_eval_questions.jsonl
-project/evaluation/datasets/ragbench_*_source_contexts.jsonl
+evaluation/datasets/ragbench_*_eval_questions.jsonl
+evaluation/datasets/ragbench_*_source_contexts.jsonl
