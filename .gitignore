@@ -1,5 +1,4 @@
 .DS_Store
-docker/
 qdrant_db/
 markdown_docs/
 markdown_docs_cleaned/
@@ -16,9 +15,7 @@ __pycache__/
 .venv/
 .github/
 .codex
-docs/
 notebooks/
 project/.env
-project/interview/
 project/evaluation/datasets/ragbench_*_eval_questions.jsonl
 project/evaluation/datasets/ragbench_*_source_contexts.jsonl
