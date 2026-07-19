@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 
 from langchain_core.documents import Document
-from retrieval.pipeline import RetrievalPipeline
+from agentic_rag.retrieval.pipeline import RetrievalPipeline
 
 
 class FakeVectorDb:
@@ -89,8 +89,8 @@ class TestRetrievalContextPolicy(unittest.TestCase):
             vector_db=FakeVectorDb(docs, neighbors=parent_store.neighbors, recorder=parent_store),
             parent_store_manager=parent_store,
         )
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \
-            patch("config.RERANKER_ENABLED", False):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), \
+            patch("agentic_rag.config.RERANKER_ENABLED", False):
             return json.loads(pipeline.rag_research(query, keep_parent_ids=keep_parent_ids))
 
     def test_parent_policy_keeps_existing_parent_backfill(self):
@@ -98,7 +98,7 @@ class TestRetrievalContextPolicy(unittest.TestCase):
             parents={"parent_1": parent_row(content="expanded parent evidence")}
         )
 
-        with patch("config.RETRIEVAL_CONTEXT_POLICY", "parent"):
+        with patch("agentic_rag.config.RETRIEVAL_CONTEXT_POLICY", "parent"):
             result = self.run_pipeline([child_doc()], store)
 
         self.assertEqual(result["diagnostics"]["context_policy"], "parent")
@@ -109,7 +109,7 @@ class TestRetrievalContextPolicy(unittest.TestCase):
     def test_child_policy_does_not_read_parent_store(self):
         store = RecordingParentStore(parents={"parent_1": parent_row()})
 
-        with patch("config.RETRIEVAL_CONTEXT_POLICY", "child"):
+        with patch("agentic_rag.config.RETRIEVAL_CONTEXT_POLICY", "child"):
             result = self.run_pipeline([child_doc(content="only child")], store)
 
         self.assertEqual(result["diagnostics"]["context_policy"], "child")
@@ -127,8 +127,8 @@ class TestRetrievalContextPolicy(unittest.TestCase):
             ]
         )
 
-        with patch("config.RETRIEVAL_CONTEXT_POLICY", "neighbor"), \
-            patch("config.RETRIEVAL_NEIGHBOR_WINDOW", 1):
+        with patch("agentic_rag.config.RETRIEVAL_CONTEXT_POLICY", "neighbor"), \
+            patch("agentic_rag.config.RETRIEVAL_NEIGHBOR_WINDOW", 1):
             result = self.run_pipeline(
                 [child_doc(content="hit", chunk_id="child_2", chunk_index=2)],
                 store,
@@ -144,7 +144,7 @@ class TestRetrievalContextPolicy(unittest.TestCase):
     def test_neighbor_policy_without_chunk_index_falls_back_to_child(self):
         store = RecordingParentStore(neighbors=[])
 
-        with patch("config.RETRIEVAL_CONTEXT_POLICY", "neighbor"):
+        with patch("agentic_rag.config.RETRIEVAL_CONTEXT_POLICY", "neighbor"):
             result = self.run_pipeline(
                 [child_doc(content="no index child", chunk_id="child_missing", chunk_index=None)],
                 store,
@@ -157,7 +157,7 @@ class TestRetrievalContextPolicy(unittest.TestCase):
     def test_adaptive_fact_query_selects_child(self):
         store = RecordingParentStore(parents={"parent_1": parent_row()})
 
-        with patch("config.RETRIEVAL_CONTEXT_POLICY", "adaptive"):
+        with patch("agentic_rag.config.RETRIEVAL_CONTEXT_POLICY", "adaptive"):
             result = self.run_pipeline(
                 [child_doc(content="nine antigens")],
                 store,
@@ -173,7 +173,7 @@ class TestRetrievalContextPolicy(unittest.TestCase):
             parents={"parent_1": parent_row(content="mechanism parent context")}
         )
 
-        with patch("config.RETRIEVAL_CONTEXT_POLICY", "adaptive"):
+        with patch("agentic_rag.config.RETRIEVAL_CONTEXT_POLICY", "adaptive"):
             result = self.run_pipeline(
                 [child_doc(content="mechanism child")],
                 store,
@@ -192,7 +192,7 @@ class TestRetrievalContextPolicy(unittest.TestCase):
             }
         )
 
-        with patch("config.RETRIEVAL_CONTEXT_POLICY", "child"):
+        with patch("agentic_rag.config.RETRIEVAL_CONTEXT_POLICY", "child"):
             result = self.run_pipeline(
                 [child_doc(content="child evidence")],
                 store,
@@ -222,9 +222,9 @@ class TestRetrievalContextPolicy(unittest.TestCase):
         )
         pipeline.set_allowed_source_files(["source.pdf"])
 
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \
-            patch("config.RETRIEVAL_CONTEXT_POLICY", "neighbor"), \
-            patch("config.RERANKER_ENABLED", False):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), \
+            patch("agentic_rag.config.RETRIEVAL_CONTEXT_POLICY", "neighbor"), \
+            patch("agentic_rag.config.RERANKER_ENABLED", False):
             result = json.loads(pipeline.rag_research("query"))
 
         self.assertEqual([context["source"] for context in result["contexts"]], ["source.pdf", "source.pdf"])

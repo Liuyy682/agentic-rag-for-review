@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 
 
-import ingestion.cleaning as cleaning
-from ingestion.cleaning import (
+import agentic_rag.ingestion.cleaning as cleaning
+from agentic_rag.ingestion.cleaning import (
     clean_markdown_text,
     write_cleaning_log,
     _sanitize_pua_characters,

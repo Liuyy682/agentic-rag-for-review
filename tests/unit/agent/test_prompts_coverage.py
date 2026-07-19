@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 
-from rag_agent import prompts
+from agentic_rag.agent import prompts
 
 
 class TestPromptsCoverage(unittest.TestCase):

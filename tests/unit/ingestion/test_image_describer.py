@@ -8,12 +8,12 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from ingestion.image_describer import (
+from agentic_rag.ingestion.image_describer import (
     enhance_markdown_image_references,
     extract_image_context,
     resolve_image_path,
 )
-import config
+from agentic_rag import config
 
 
 class TestImageDescriber(unittest.TestCase):

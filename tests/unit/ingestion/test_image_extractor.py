@@ -6,7 +6,7 @@ import zipfile
 from pathlib import Path
 
 
-from ingestion.image_extractor import (
+from agentic_rag.ingestion.image_extractor import (
     extract_images_from_pptx,
     extract_images_from_docx,
     clean_docx_broken_image_refs,

@@ -8,8 +8,8 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
-import config
-from core.rag_system import RAGSystem
+from agentic_rag import config
+from agentic_rag.core.rag_system import RAGSystem
 from evaluation.data import load_eval_questions
 from evaluation.io import config_snapshot, make_run_id, write_jsonl, write_metrics_csv
 from evaluation.metrics.ragas_metrics import build_ragas_error_cases, run_ragas_metrics

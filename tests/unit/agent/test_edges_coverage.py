@@ -5,8 +5,8 @@ from pathlib import Path
 
 from langchain_core.messages import AIMessage
 
-import config
-from rag_agent.edges import (
+from agentic_rag import config
+from agentic_rag.agent.edges import (
     route_after_answer_evaluation,
     route_after_intent,
     route_after_rewrite,

@@ -6,7 +6,7 @@ from unittest.mock import patch
 import numpy as np
 
 
-from retrieval.embeddings import DenseEmbeddingModel
+from agentic_rag.retrieval.embeddings import DenseEmbeddingModel
 
 
 class FakeSentenceTransformer:
@@ -35,7 +35,7 @@ class TestDenseEmbeddingModel(unittest.TestCase):
         FakeSentenceTransformer.calls = []
 
     def test_documents_are_normalized_without_query_instruction(self):
-        with patch("retrieval.embeddings._sentence_transformer_cls", return_value=FakeSentenceTransformer):
+        with patch("agentic_rag.retrieval.embeddings._sentence_transformer_cls", return_value=FakeSentenceTransformer):
             model = DenseEmbeddingModel(
                 model_name="fake-model",
                 device="cpu",
@@ -52,7 +52,7 @@ class TestDenseEmbeddingModel(unittest.TestCase):
         self.assertTrue(FakeSentenceTransformer.calls[0]["normalize_embeddings"])
 
     def test_query_uses_instruction_and_normalization(self):
-        with patch("retrieval.embeddings._sentence_transformer_cls", return_value=FakeSentenceTransformer):
+        with patch("agentic_rag.retrieval.embeddings._sentence_transformer_cls", return_value=FakeSentenceTransformer):
             model = DenseEmbeddingModel(
                 model_name="fake-model",
                 device="cpu",

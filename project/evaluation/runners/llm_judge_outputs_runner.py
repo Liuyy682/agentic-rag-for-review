@@ -13,7 +13,7 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
-import config
+from agentic_rag import config
 from evaluation.io import read_jsonl, write_jsonl, write_metrics_csv
 from evaluation.llm_config import api_key, base_url, judge_model
 from evaluation.validation import build_validity_summary, make_warning, write_validation_outputs

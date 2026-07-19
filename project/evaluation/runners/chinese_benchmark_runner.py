@@ -18,8 +18,8 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
-import config
-from core.rag_system import RAGSystem
+from agentic_rag import config
+from agentic_rag.core.rag_system import RAGSystem
 from evaluation.chinese_benchmarks import (
     BenchmarkDocument,
     BenchmarkQuestion,
@@ -50,9 +50,9 @@ from evaluation.validation import (
     validate_ragas_rows,
     write_validation_outputs,
 )
-from ingestion.document_manager import DocumentManager
-from retrieval.pipeline import RetrievalPipeline
-from storage.postgres import reset_pool_for_tests
+from agentic_rag.ingestion.document_manager import DocumentManager
+from agentic_rag.retrieval.pipeline import RetrievalPipeline
+from agentic_rag.storage.postgres import reset_pool_for_tests
 
 
 DEFAULT_K_VALUES = (1, 3, 5, 10, 20)

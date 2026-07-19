@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
-import config
+from agentic_rag import config
 
 
 def make_run_id(label: str = "baseline") -> str:

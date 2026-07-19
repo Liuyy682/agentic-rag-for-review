@@ -6,10 +6,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-import config
-from ingestion.chunking import DocumentChunker
-from ingestion.document_manager import DocumentManager
-from ingestion.models import DocumentIngestionResult, IngestionDocument
+from agentic_rag import config
+from agentic_rag.ingestion.chunking import DocumentChunker
+from agentic_rag.ingestion.document_manager import DocumentManager
+from agentic_rag.ingestion.models import DocumentIngestionResult, IngestionDocument
 
 
 class FakeVectorDb:
@@ -272,7 +272,7 @@ class StageLogTest(unittest.TestCase):
                 manager = DocumentManager(FakeRagSystem())
                 manager.add_documents_detailed([str(source)])
 
-                log_path = Path(config.INGESTION_LOG_DIR) / "ingestion.jsonl"
+                log_path = Path(config.INGESTION_LOG_DIR) / "agentic_rag.ingestion.jsonl"
                 self.assertTrue(log_path.exists())
                 self.assertIn("notes.md", log_path.read_text(encoding="utf-8"))
 
@@ -406,7 +406,7 @@ class FailureBranchTest(unittest.TestCase):
                 source = self._source(temp_path)
                 manager = DocumentManager(FakeRagSystem())
                 with patch(
-                    "ingestion.document_manager.convert_document_to_markdown",
+                    "agentic_rag.ingestion.document_manager.convert_document_to_markdown",
                     side_effect=RuntimeError("convert boom"),
                 ):
                     summary = manager.add_documents_detailed([str(source)])
@@ -503,10 +503,10 @@ class CleaningEnabledAndImageTest(unittest.TestCase):
                     return markdown_text + "\n\n<!-- image analysis -->\n"
 
                 with patch(
-                    "ingestion.image_describer.create_image_describer",
+                    "agentic_rag.ingestion.image_describer.create_image_describer",
                     return_value=lambda *a, **k: "desc",
                 ), patch(
-                    "ingestion.image_describer.enhance_markdown_image_references",
+                    "agentic_rag.ingestion.image_describer.enhance_markdown_image_references",
                     side_effect=fake_enhance,
                 ):
                     summary = manager.add_documents_detailed([str(source)])
@@ -523,7 +523,7 @@ class CleaningEnabledAndImageTest(unittest.TestCase):
                 source.write_text(MARKDOWN_BODY, encoding="utf-8")
                 manager = DocumentManager(FakeRagSystem())
                 with patch(
-                    "ingestion.image_describer.create_image_describer",
+                    "agentic_rag.ingestion.image_describer.create_image_describer",
                     return_value=None,
                 ):
                     summary = manager.add_documents_detailed([str(source)])

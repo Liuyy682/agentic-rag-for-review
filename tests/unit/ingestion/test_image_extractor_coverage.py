@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from ingestion import image_extractor
-from ingestion.image_extractor import (
+from agentic_rag.ingestion import image_extractor
+from agentic_rag.ingestion.image_extractor import (
     extract_images_from_pptx,
     extract_images_from_docx,
     _is_pptx_picture,
@@ -79,7 +79,7 @@ class TestPptxShapeWithoutBlob(unittest.TestCase):
             class FakePresentation:
                 slides = [FakeSlide()]
 
-            with patch("ingestion.image_extractor._is_pptx_picture", return_value=True), \
+            with patch("agentic_rag.ingestion.image_extractor._is_pptx_picture", return_value=True), \
                  patch("pptx.Presentation", return_value=FakePresentation()):
                 extract_images_from_pptx(Path(d) / "x.pptx", out_dir)
 
@@ -141,7 +141,7 @@ class TestPptxConvertsNonJpegBlob(unittest.TestCase):
             class FakePresentation:
                 slides = [FakeSlide()]
 
-            with patch("ingestion.image_extractor._is_pptx_picture", return_value=True), \
+            with patch("agentic_rag.ingestion.image_extractor._is_pptx_picture", return_value=True), \
                  patch("pptx.Presentation", return_value=FakePresentation()):
                 extract_images_from_pptx(Path(d) / "x.pptx", out_dir)
 

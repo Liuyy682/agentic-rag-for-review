@@ -6,8 +6,8 @@ from pathlib import Path
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from rag_agent.nodes.aggregation import aggregate_answers
-from rag_agent.nodes.intent import recognize_intent, rewrite_query
+from agentic_rag.agent.nodes.aggregation import aggregate_answers
+from agentic_rag.agent.nodes.intent import recognize_intent, rewrite_query
 
 
 class CaptureLLM:

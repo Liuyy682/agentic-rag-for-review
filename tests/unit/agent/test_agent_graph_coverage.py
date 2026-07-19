@@ -5,12 +5,12 @@ from pathlib import Path
 
 from langchain_core.messages import AIMessage
 
-from rag_agent.graph import (
+from agentic_rag.agent.graph import (
     create_agent_graph,
     create_agent_subgraph,
     create_task_executor_subgraph,
 )
-from rag_agent.nodes.aggregation import aggregate_answers
+from agentic_rag.agent.nodes.aggregation import aggregate_answers
 
 
 class FakeLLM:

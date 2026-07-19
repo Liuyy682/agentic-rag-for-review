@@ -5,9 +5,9 @@ from unittest.mock import patch
 
 
 from langchain_core.documents import Document
-import config
-import retrieval.reranker as reranker_module
-from retrieval.reranker import CrossEncoderReranker, RerankerUnavailable, get_reranker
+from agentic_rag import config
+import agentic_rag.retrieval.reranker as reranker_module
+from agentic_rag.retrieval.reranker import CrossEncoderReranker, RerankerUnavailable, get_reranker
 
 
 def build_fake_cross_encoder(scores):
@@ -45,7 +45,7 @@ class TestCrossEncoderReranker(unittest.TestCase):
         scores = [0.2, 0.9, 0.4]
         fake_encoder = build_fake_cross_encoder(scores)
 
-        with patch("retrieval.reranker.CrossEncoder", fake_encoder):
+        with patch("agentic_rag.retrieval.reranker.CrossEncoder", fake_encoder):
             reranker = CrossEncoderReranker("fake-model", device="cpu", batch_size=2, max_length=32)
             results = reranker.rerank("query", make_docs(3), top_k=3)
 
@@ -58,7 +58,7 @@ class TestCrossEncoderReranker(unittest.TestCase):
         scores = [0.2, 0.9, 0.4]
         fake_encoder = build_fake_cross_encoder(scores)
 
-        with patch("retrieval.reranker.CrossEncoder", fake_encoder):
+        with patch("agentic_rag.retrieval.reranker.CrossEncoder", fake_encoder):
             reranker = CrossEncoderReranker("fake-model", device="cpu", batch_size=2, max_length=32)
             results = reranker.rerank("query", make_docs(3), top_k=2, score_threshold=0.5)
 
@@ -73,8 +73,8 @@ class TestCrossEncoderReranker(unittest.TestCase):
                 calls.append((args, kwargs))
                 raise OSError("model unavailable")
 
-        with patch("retrieval.reranker.CrossEncoder", FailingCrossEncoder), \
-            patch("config.RERANKER_LOCAL_FILES_ONLY", True):
+        with patch("agentic_rag.retrieval.reranker.CrossEncoder", FailingCrossEncoder), \
+            patch("agentic_rag.config.RERANKER_LOCAL_FILES_ONLY", True):
             with self.assertRaises(RerankerUnavailable):
                 get_reranker()
             with self.assertRaises(RerankerUnavailable):

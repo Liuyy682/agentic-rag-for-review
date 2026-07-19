@@ -5,9 +5,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 
-import config
-from ingestion import image_describer
-from ingestion.image_describer import (
+from agentic_rag import config
+from agentic_rag.ingestion import image_describer
+from agentic_rag.ingestion.image_describer import (
     LocalVLMImageDescriber,
     PaddleOcrImageDescriber,
     create_image_describer,
@@ -21,7 +21,7 @@ from ingestion.image_describer import (
 
 class TestLocalVLMDescribeImage(unittest.TestCase):
     def test_posts_to_vlm_and_returns_content(self, ):
-        with patch("ingestion.image_describer.httpx.post") as post:
+        with patch("agentic_rag.ingestion.image_describer.httpx.post") as post:
             resp = MagicMock()
             resp.json.return_value = {
                 "choices": [{"message": {"content": "  OCR: x\nRAG_SUMMARY: y\nKEY_TERMS: z  "}}]
@@ -56,7 +56,7 @@ class TestLocalVLMDescribeImage(unittest.TestCase):
             self.assertEqual(payload["max_tokens"], 100)
 
     def test_empty_context_becomes_placeholder(self):
-        with patch("ingestion.image_describer.httpx.post") as post:
+        with patch("agentic_rag.ingestion.image_describer.httpx.post") as post:
             resp = MagicMock()
             resp.json.return_value = {"choices": [{"message": {"content": "SKIP_IMAGE"}}]}
             resp.raise_for_status.return_value = None

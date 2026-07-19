@@ -16,11 +16,11 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
-import config
+from agentic_rag import config
 from evaluation.io import write_jsonl, write_metrics_csv
 from evaluation.ragbench_keys import document_id_from_sentence_key
 from evaluation.validation import build_validity_summary, make_warning, validation_markdown_section, write_validation_outputs
-from retrieval.embeddings import DenseEmbeddingModel
+from agentic_rag.retrieval.embeddings import DenseEmbeddingModel
 
 
 DEFAULT_VARIANTS = [

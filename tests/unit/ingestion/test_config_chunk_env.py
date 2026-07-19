@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-import config
+from agentic_rag import config
 
 
 class TestChunkConfigEnvironment(unittest.TestCase):

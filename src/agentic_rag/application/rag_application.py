@@ -1,0 +1,22 @@
+from agentic_rag.chat.chat_interface import ChatInterface
+from agentic_rag.ingestion.course_structure import CourseStructureStore
+from agentic_rag.ingestion.document_manager import DocumentManager
+from agentic_rag.core.rag_system import RAGSystem
+
+
+class RagApplication:
+    def __init__(self, rag_system, document_manager, chat_interface):
+        self.rag_system = rag_system
+        self.document_manager = document_manager
+        self.chat_interface = chat_interface
+
+    @classmethod
+    def create(cls):
+        rag_system = RAGSystem()
+        rag_system.initialize()
+        course_store = CourseStructureStore()
+        return cls(
+            rag_system=rag_system,
+            document_manager=DocumentManager(rag_system, course_store=course_store),
+            chat_interface=ChatInterface(rag_system, course_store=course_store),
+        )

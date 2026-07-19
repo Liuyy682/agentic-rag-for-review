@@ -12,13 +12,13 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
-import config
-from core.rag_system import RAGSystem
+from agentic_rag import config
+from agentic_rag.core.rag_system import RAGSystem
 from evaluation.io import config_snapshot, make_run_id, write_jsonl, write_metrics_csv
 from evaluation.ragbench_keys import document_id_from_sentence_key
 from evaluation.validation import build_validity_summary, make_warning, write_validation_outputs
-from ingestion.document_manager import DocumentManager
-from retrieval.pipeline import RetrievalPipeline
+from agentic_rag.ingestion.document_manager import DocumentManager
+from agentic_rag.retrieval.pipeline import RetrievalPipeline
 
 
 DEFAULT_K_VALUES = [1, 3, 5, 10, 20]

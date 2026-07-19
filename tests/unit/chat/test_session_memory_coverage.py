@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 
-from chat.session_memory import SessionMemoryStore
+from agentic_rag.chat.session_memory import SessionMemoryStore
 
 
 class SessionMemoryCoverageTest(unittest.TestCase):

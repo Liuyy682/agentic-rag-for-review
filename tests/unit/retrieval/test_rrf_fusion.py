@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 from langchain_core.documents import Document
-from retrieval.fusion import get_doc_key, reciprocal_rank_fusion
+from agentic_rag.retrieval.fusion import get_doc_key, reciprocal_rank_fusion
 
 
 def doc(chunk_id, content=None, parent_id="p1"):

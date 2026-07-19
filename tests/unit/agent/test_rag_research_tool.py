@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 
 from langchain_core.documents import Document
-from rag_agent.tools import ToolFactory
+from agentic_rag.agent.tools import ToolFactory
 
 
 class FakeVectorDb:
@@ -51,9 +51,9 @@ class TestRagResearchTool(unittest.TestCase):
         self.assertEqual([tool.name for tool in tools], ["rag_research"])
 
     def test_rag_research_returns_structured_result(self):
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \
-            patch("config.RETRIEVAL_CONTEXT_POLICY", "parent"), \
-            patch("config.RERANKER_ENABLED", False), \
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), \
+            patch("agentic_rag.config.RETRIEVAL_CONTEXT_POLICY", "parent"), \
+            patch("agentic_rag.config.RERANKER_ENABLED", False), \
             patch.object(
                 self.tool_factory.parent_store_manager,
                 "load_content_many",
@@ -79,9 +79,9 @@ class TestRagResearchTool(unittest.TestCase):
             parent_store_manager=FakeParentStore(),
         )
         self.tool_factory.set_allowed_source_files(["source.pdf"])
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \
-            patch("config.RETRIEVAL_CONTEXT_POLICY", "parent"), \
-            patch("config.RERANKER_ENABLED", False), \
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), \
+            patch("agentic_rag.config.RETRIEVAL_CONTEXT_POLICY", "parent"), \
+            patch("agentic_rag.config.RERANKER_ENABLED", False), \
             patch.object(
                 self.tool_factory.parent_store_manager,
                 "load_content_many",

@@ -5,15 +5,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-import config
-from ingestion.document_manager import DocumentManager
-from ingestion.cleaning import clean_markdown_text
-from ingestion.index_manifest import (
+from agentic_rag import config
+from agentic_rag.ingestion.document_manager import DocumentManager
+from agentic_rag.ingestion.cleaning import clean_markdown_text
+from agentic_rag.ingestion.index_manifest import (
     IndexManifest,
     build_page_hashes,
     current_index_config,
 )
-from ingestion.chunking import DocumentChunker
+from agentic_rag.ingestion.chunking import DocumentChunker
 
 
 def paged_markdown(page_3_text="page three"):
@@ -212,7 +212,7 @@ class TestPageIncrementalIndex(unittest.TestCase):
                 rag_system = FakeRagSystem(config.INDEX_STATE_DIR)
                 manager = DocumentManager(rag_system)
 
-                with patch("ingestion.conversion._convert_with_markitdown", return_value="# Notes\n\nBody"):
+                with patch("agentic_rag.ingestion.conversion._convert_with_markitdown", return_value="# Notes\n\nBody"):
                     added, skipped = manager.add_documents([str(source)], course_names="Database Systems")
 
                 self.assertEqual((added, skipped), (1, 0))

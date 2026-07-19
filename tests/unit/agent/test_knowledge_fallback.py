@@ -7,9 +7,9 @@ from unittest.mock import patch
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from rag_agent.edges import route_after_answer_evaluation
-from rag_agent.nodes.evaluation import evaluate_answer
-from rag_agent.nodes.execution import collect_answer, knowledge_fallback_answer
+from agentic_rag.agent.edges import route_after_answer_evaluation
+from agentic_rag.agent.nodes.evaluation import evaluate_answer
+from agentic_rag.agent.nodes.execution import collect_answer, knowledge_fallback_answer
 
 
 class FakeLLM:
@@ -117,7 +117,7 @@ class TestKnowledgeFallback(unittest.TestCase):
             ],
         }
 
-        with patch("config.RERANKER_SCORE_THRESHOLD", 0.5):
+        with patch("agentic_rag.config.RERANKER_SCORE_THRESHOLD", 0.5):
             result = evaluate_answer(state, FakeLLM("should not be called"))
 
         self.assertFalse(result["answer_is_satisfactory"])
@@ -144,7 +144,7 @@ class TestKnowledgeFallback(unittest.TestCase):
             ],
         }
 
-        with patch("config.RERANKER_SCORE_THRESHOLD", None), patch("config.RERANKER_ENABLED", True):
+        with patch("agentic_rag.config.RERANKER_SCORE_THRESHOLD", None), patch("agentic_rag.config.RERANKER_ENABLED", True):
             result = evaluate_answer(state, FakeLLM("should not be called"))
 
         self.assertFalse(result["answer_is_satisfactory"])

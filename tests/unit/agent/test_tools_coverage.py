@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 
-from rag_agent.tools import ToolFactory
+from agentic_rag.agent.tools import ToolFactory
 
 
 class FakeVectorDb:

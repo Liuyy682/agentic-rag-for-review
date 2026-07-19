@@ -12,10 +12,10 @@ pytestmark = pytest.mark.skipif(
 
 from langchain_core.documents import Document
 
-import config
-from storage import postgres
-from storage.pg_parent_store import PgParentStoreManager
-from storage.pg_vector_store import PgVectorManager
+from agentic_rag import config
+from agentic_rag.storage import postgres
+from agentic_rag.storage.pg_parent_store import PgParentStoreManager
+from agentic_rag.storage.pg_vector_store import PgVectorManager
 
 
 def _vec(index: int) -> list[float]:
@@ -34,7 +34,7 @@ class FakeEmbeddingModel:
 
 @pytest.fixture(autouse=True)
 def pg_storage(monkeypatch):
-    monkeypatch.setattr("storage.pg_vector_store.DenseEmbeddingModel", FakeEmbeddingModel)
+    monkeypatch.setattr("agentic_rag.storage.pg_vector_store.DenseEmbeddingModel", FakeEmbeddingModel)
     postgres.reset_pool_for_tests()
     vector = PgVectorManager()
     parent = PgParentStoreManager()

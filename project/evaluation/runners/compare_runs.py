@@ -8,7 +8,7 @@ if str(PROJECT_DIR) not in sys.path:
 
 from evaluation.io import read_metrics_csv
 from evaluation.reports import write_compare_report
-import config
+from agentic_rag import config
 
 
 def main() -> None:

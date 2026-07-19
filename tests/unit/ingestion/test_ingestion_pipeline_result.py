@@ -5,10 +5,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-import config
-from ingestion.document_manager import DocumentManager
-from ingestion.index_manifest import IndexManifest
-from ingestion.chunking import DocumentChunker
+from agentic_rag import config
+from agentic_rag.ingestion.document_manager import DocumentManager
+from agentic_rag.ingestion.index_manifest import IndexManifest
+from agentic_rag.ingestion.chunking import DocumentChunker
 
 
 class FakeCollection:
@@ -121,7 +121,7 @@ class TestIngestionPipelineResult(unittest.TestCase):
                 self.assertEqual(first.documents[0].reason, "indexed")
                 self.assertTrue(first.documents[0].course_updated)
 
-                with patch("ingestion.document_manager.convert_document_to_markdown") as convert:
+                with patch("agentic_rag.ingestion.document_manager.convert_document_to_markdown") as convert:
                     convert.side_effect = AssertionError("conversion should be skipped")
                     second = manager.add_documents_detailed([str(source)], course_names="Course B")
 

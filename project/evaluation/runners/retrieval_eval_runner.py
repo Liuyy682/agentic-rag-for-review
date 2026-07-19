@@ -8,8 +8,8 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
-import config
-from storage.pg_vector_store import PgVectorManager
+from agentic_rag import config
+from agentic_rag.storage.pg_vector_store import PgVectorManager
 from evaluation.data import load_eval_questions
 from evaluation.io import config_snapshot, make_run_id, write_jsonl, write_metrics_csv
 from evaluation.metrics.retrieval_metrics import (

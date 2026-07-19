@@ -4,10 +4,10 @@ import unittest
 from pathlib import Path
 
 
-import config
+from agentic_rag import config
 from langchain_core.documents import Document
-from ingestion.chunking import DocumentChunker
-from ingestion.cleaning import PageBlock
+from agentic_rag.ingestion.chunking import DocumentChunker
+from agentic_rag.ingestion.cleaning import PageBlock
 
 
 def doc(text, metadata=None):

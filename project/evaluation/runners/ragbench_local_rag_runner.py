@@ -10,9 +10,9 @@ PROJECT_DIR = Path(__file__).resolve().parents[2]
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
-import config
-from storage.pg_vector_store import PgVectorManager
-from storage.pg_parent_store import PgParentStoreManager
+from agentic_rag import config
+from agentic_rag.storage.pg_vector_store import PgVectorManager
+from agentic_rag.storage.pg_parent_store import PgParentStoreManager
 from evaluation.data import EvalQuestion
 from evaluation.io import config_snapshot, make_run_id, write_jsonl, write_metrics_csv
 from evaluation.llm_config import answer_model as resolve_answer_model
@@ -32,8 +32,8 @@ from evaluation.validation import (
 )
 from langchain_core.documents import Document
 from langchain_core.messages import ToolMessage
-from rag_agent.graph import create_agent_subgraph
-from rag_agent.tools import ToolFactory
+from agentic_rag.agent.graph import create_agent_subgraph
+from agentic_rag.agent.tools import ToolFactory
 
 
 def run_ragbench_local_rag_eval(

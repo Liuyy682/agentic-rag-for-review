@@ -26,7 +26,7 @@ from evaluation.validation import (
     validation_markdown_section,
     write_validation_outputs,
 )
-from retrieval.embeddings import DenseEmbeddingModel
+from agentic_rag.retrieval.embeddings import DenseEmbeddingModel
 
 
 DEFAULT_VARIANTS = "single_1200_240,pc_child,pc_neighbor,pc_parent,pc_adaptive"

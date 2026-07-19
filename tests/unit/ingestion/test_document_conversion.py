@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-from ingestion.conversion import (
+from agentic_rag.ingestion.conversion import (
     convert_document_to_markdown,
     documents_to_markdowns,
     is_supported_document,
@@ -42,7 +42,7 @@ class TestDocumentConversion(unittest.TestCase):
             for suffix in [".docx", ".pptx"]:
                 source = temp_path / f"lecture{suffix}"
                 source.write_bytes(b"fake")
-                with patch("ingestion.conversion._convert_with_markitdown", return_value="# Converted\n\nBody") as convert:
+                with patch("agentic_rag.ingestion.conversion._convert_with_markitdown", return_value="# Converted\n\nBody") as convert:
                     md_path = convert_document_to_markdown(source, output_dir, overwrite=True)
 
                 convert.assert_called_once_with(source)
@@ -57,7 +57,7 @@ class TestDocumentConversion(unittest.TestCase):
             output_dir = temp_path / "markdown"
 
             with patch(
-                "ingestion.conversion._convert_pdf_with_pymupdf4llm",
+                "agentic_rag.ingestion.conversion._convert_pdf_with_pymupdf4llm",
                 return_value="# PDF via pymupdf4llm\n\nContent",
             ) as convert_pdf:
                 md_path = convert_document_to_markdown(source, output_dir, overwrite=True)
@@ -74,10 +74,10 @@ class TestDocumentConversion(unittest.TestCase):
             output_dir = temp_path / "markdown"
 
             with patch(
-                "ingestion.conversion._convert_pdf_with_pymupdf4llm",
+                "agentic_rag.ingestion.conversion._convert_pdf_with_pymupdf4llm",
                 side_effect=RuntimeError("PDF parse error"),
             ), patch(
-                "ingestion.conversion._convert_with_markitdown",
+                "agentic_rag.ingestion.conversion._convert_with_markitdown",
                 return_value="# Fallback OK",
             ) as convert_fallback:
                 md_path = convert_document_to_markdown(source, output_dir, overwrite=True)
@@ -100,7 +100,7 @@ class TestDocumentConversion(unittest.TestCase):
 
             source = temp_path / "empty.pdf"
             source.write_bytes(b"fake")
-            with patch("ingestion.conversion._convert_with_markitdown", return_value="   "):
+            with patch("agentic_rag.ingestion.conversion._convert_with_markitdown", return_value="   "):
                 with self.assertRaises(ValueError):
                     convert_document_to_markdown(source, temp_path, overwrite=True)
 

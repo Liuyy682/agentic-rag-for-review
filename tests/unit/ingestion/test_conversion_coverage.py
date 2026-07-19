@@ -6,8 +6,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-import config
-from ingestion import conversion
+from agentic_rag import config
+from agentic_rag.ingestion import conversion
 
 
 class TestClearDirectoryContents(unittest.TestCase):

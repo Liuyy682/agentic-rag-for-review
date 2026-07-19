@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 
 from langchain_core.documents import Document
-from rag_agent.tools import ToolFactory
+from agentic_rag.agent.tools import ToolFactory
 
 
 class FakeVectorDb:
@@ -49,7 +49,7 @@ class TestRrfRetrievalTool(unittest.TestCase):
         self.tool_factory = ToolFactory(vector_db=self.vector_db, parent_store_manager=FakeParentStore())
 
     def test_dense_mode_returns_compatible_output(self):
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"):
             output = self.tool_factory._search_child_chunks("query", 5)
 
         self.assertIn("Parent ID: parent_1", output)
@@ -57,7 +57,7 @@ class TestRrfRetrievalTool(unittest.TestCase):
         self.assertIn("Content: dense_child content", output)
 
     def test_sparse_mode_returns_compatible_output(self):
-        with patch("config.RETRIEVAL_FUSION_MODE", "sparse"):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "sparse"):
             output = self.tool_factory._search_child_chunks("query", 5)
 
         self.assertIn("Parent ID: parent_1", output)
@@ -65,7 +65,7 @@ class TestRrfRetrievalTool(unittest.TestCase):
         self.assertIn("Content: sparse_child content", output)
 
     def test_rrf_mode_returns_compatible_output(self):
-        with patch("config.RETRIEVAL_FUSION_MODE", "rrf"):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "rrf"):
             output = self.tool_factory._search_child_chunks("query", 5)
 
         self.assertIn("Parent ID: parent_1", output)
@@ -73,11 +73,11 @@ class TestRrfRetrievalTool(unittest.TestCase):
         self.assertIn("Content: rrf_child content", output)
 
     def test_rrf_debug_output_is_optional(self):
-        with patch("config.RETRIEVAL_FUSION_MODE", "rrf"), patch("config.RETRIEVAL_DEBUG", False):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "rrf"), patch("agentic_rag.config.RETRIEVAL_DEBUG", False):
             output = self.tool_factory._search_child_chunks("query", 5)
         self.assertNotIn("RRF Score:", output)
 
-        with patch("config.RETRIEVAL_FUSION_MODE", "rrf"), patch("config.RETRIEVAL_DEBUG", True):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "rrf"), patch("agentic_rag.config.RETRIEVAL_DEBUG", True):
             output = self.tool_factory._search_child_chunks("query", 5)
         self.assertIn("RRF Score:", output)
         self.assertIn("RRF Rank Details:", output)

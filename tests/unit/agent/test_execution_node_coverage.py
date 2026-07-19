@@ -5,7 +5,7 @@ from pathlib import Path
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from rag_agent.nodes.execution import (
+from agentic_rag.agent.nodes.execution import (
     _sources_from_answer,
     collect_answer,
     fallback_response,

@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 
 
-import retrieval.embeddings as embeddings_module
-from retrieval.embeddings import DenseEmbeddingModel, resolve_embedding_device
+import agentic_rag.retrieval.embeddings as embeddings_module
+from agentic_rag.retrieval.embeddings import DenseEmbeddingModel, resolve_embedding_device
 
 
 def fake_torch(cuda_avail, mps_avail, has_mps=True):
@@ -67,7 +67,7 @@ class FakeSentenceTransformer:
 
 class TestPrefixQuery(unittest.TestCase):
     def _model(self, query_instruction):
-        with patch("retrieval.embeddings._sentence_transformer_cls", return_value=FakeSentenceTransformer):
+        with patch("agentic_rag.retrieval.embeddings._sentence_transformer_cls", return_value=FakeSentenceTransformer):
             return DenseEmbeddingModel(
                 model_name="fake-model",
                 device="cpu",

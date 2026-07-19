@@ -6,7 +6,7 @@ from pathlib import Path
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from rag_agent.nodes.intent import (
+from agentic_rag.agent.nodes.intent import (
     _conversation_context,
     _parse_intent_analysis,
     _parse_query_analysis,

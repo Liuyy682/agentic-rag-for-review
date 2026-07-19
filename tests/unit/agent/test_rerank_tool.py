@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 
 from langchain_core.documents import Document
-from rag_agent.tools import ToolFactory
+from agentic_rag.agent.tools import ToolFactory
 
 
 def make_doc(idx):
@@ -38,25 +38,25 @@ class TestRerankToolIntegration(unittest.TestCase):
         self.tool_factory = ToolFactory(vector_db=self.vector_db, parent_store_manager=FakeParentStore())
 
     def test_search_child_chunks_does_not_rerank(self):
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \
-            patch("config.RERANKER_ENABLED", True), \
-            patch("config.RERANKER_TOP_N", 3):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), \
+            patch("agentic_rag.config.RERANKER_ENABLED", True), \
+            patch("agentic_rag.config.RERANKER_TOP_N", 3):
             output = self.tool_factory._search_child_chunks("query", 2)
 
         self.assertNotIn("Rerank Score:", output)
         self.assertEqual(self.vector_db.calls[0][-1], 3)
 
     def test_search_child_chunks_uses_limit_when_reranker_disabled(self):
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \
-            patch("config.RERANKER_ENABLED", False):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), \
+            patch("agentic_rag.config.RERANKER_ENABLED", False):
             output = self.tool_factory._search_child_chunks("query", 1)
 
         self.assertIn("Content: content 0", output)
 
     def test_search_child_chunks_expands_candidate_pool_for_graph_rerank(self):
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \
-            patch("config.RERANKER_ENABLED", True), \
-            patch("config.RERANKER_TOP_N", 7):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), \
+            patch("agentic_rag.config.RERANKER_ENABLED", True), \
+            patch("agentic_rag.config.RERANKER_TOP_N", 7):
             self.tool_factory._search_child_chunks("query", 2)
 
         self.assertEqual(self.vector_db.calls[0][-1], 7)

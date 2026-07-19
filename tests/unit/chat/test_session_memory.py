@@ -8,8 +8,8 @@ from types import SimpleNamespace
 
 from langchain_core.messages import AIMessageChunk
 
-from chat.chat_interface import ChatInterface
-from chat.session_memory import SessionMemoryStore
+from agentic_rag.chat.chat_interface import ChatInterface
+from agentic_rag.chat.session_memory import SessionMemoryStore
 
 
 class FakeGraph:

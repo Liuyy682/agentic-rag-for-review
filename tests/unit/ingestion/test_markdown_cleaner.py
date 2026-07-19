@@ -4,9 +4,9 @@ import unittest
 from pathlib import Path
 
 
-import config
-from ingestion.chunking import DocumentChunker
-from ingestion.cleaning import clean_markdown_text
+from agentic_rag import config
+from agentic_rag.ingestion.chunking import DocumentChunker
+from agentic_rag.ingestion.cleaning import clean_markdown_text
 
 
 SAMPLE_MARKDOWN = """# Agentic RAG Overview

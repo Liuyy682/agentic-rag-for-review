@@ -2,7 +2,7 @@ import os
 import math
 from typing import Any, Dict, List
 
-import config
+from agentic_rag import config
 from evaluation.llm_config import api_key, base_url, judge_model
 
 

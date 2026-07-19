@@ -6,8 +6,8 @@ from pathlib import Path
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from rag_agent.edges import route_after_intent, route_after_task_planning
-from rag_agent.nodes.intent import (
+from agentic_rag.agent.edges import route_after_intent, route_after_task_planning
+from agentic_rag.agent.nodes.intent import (
     _parse_intent_analysis,
     plan_rag_tasks,
     recognize_intent,

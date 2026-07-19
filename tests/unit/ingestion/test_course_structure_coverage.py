@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 
-from ingestion.course_structure import (
+from agentic_rag.ingestion.course_structure import (
     MAX_KNOWLEDGE_POINTS_PER_SECTION,
     CourseStructureStore,
     parse_course_names,

@@ -5,7 +5,7 @@ from pathlib import Path
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from rag_agent.nodes.history import summarize_history
+from agentic_rag.agent.nodes.history import summarize_history
 
 
 class ConfigurableLLM:

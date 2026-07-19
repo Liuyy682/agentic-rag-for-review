@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 
 from langchain_core.documents import Document
-from retrieval.pipeline import RetrievalPipeline
-from retrieval.reranker import RerankerUnavailable
+from agentic_rag.retrieval.pipeline import RetrievalPipeline
+from agentic_rag.retrieval.reranker import RerankerUnavailable
 
 
 def child_doc(content="child evidence", chunk_id="child_1", parent_id="parent_1",
@@ -75,7 +75,7 @@ class TestFormatChildChunkResults(unittest.TestCase):
         pipeline = RetrievalPipeline(vector_db=FakeVectorDb(), parent_store_manager=FakeParentStore())
         good = child_doc(extra={"rerank_score": 0.5, "rerank_rank": 1})
         bad = child_doc(extra={"rerank_score": "not-a-number"})
-        with patch("config.RETRIEVAL_DEBUG", True):
+        with patch("agentic_rag.config.RETRIEVAL_DEBUG", True):
             output = pipeline.format_child_chunk_results([good, bad])
         self.assertIn("Rerank Score: 0.500000", output)
         self.assertIn("Rerank Rank: 1", output)
@@ -88,48 +88,48 @@ class TestSearchChildChunkDocuments(unittest.TestCase):
 
     def test_dense_mode(self):
         pipeline = self._pipeline([child_doc()])
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"), patch("config.RERANKER_ENABLED", False):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), patch("agentic_rag.config.RERANKER_ENABLED", False):
             results = pipeline.search_child_chunk_documents("q", 5)
         self.assertEqual(len(results), 1)
 
     def test_sparse_mode(self):
         pipeline = self._pipeline([child_doc()])
-        with patch("config.RETRIEVAL_FUSION_MODE", "sparse"), patch("config.RERANKER_ENABLED", False):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "sparse"), patch("agentic_rag.config.RERANKER_ENABLED", False):
             results = pipeline.search_child_chunk_documents("q", 5)
         self.assertEqual(len(results), 1)
 
     def test_unsupported_mode_raises(self):
         pipeline = self._pipeline([child_doc()])
-        with patch("config.RETRIEVAL_FUSION_MODE", "bogus"):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "bogus"):
             with self.assertRaises(ValueError):
                 pipeline.search_child_chunk_documents("q", 5)
 
     def test_rrf_requires_vector_db(self):
         pipeline = RetrievalPipeline(vector_db=FakeVectorDb(), parent_store_manager=FakeParentStore())
         pipeline.vector_db = None
-        with patch("config.RETRIEVAL_FUSION_MODE", "rrf"):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "rrf"):
             with self.assertRaises(ValueError):
                 pipeline.search_child_chunk_documents("q", 5)
 
     def test_dense_requires_vector_db(self):
         pipeline = RetrievalPipeline(vector_db=FakeVectorDb(), parent_store_manager=FakeParentStore())
         pipeline.vector_db = None
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"):
             with self.assertRaises(ValueError):
                 pipeline.search_child_chunk_documents("q", 5)
 
     def test_sparse_requires_vector_db(self):
         pipeline = RetrievalPipeline(vector_db=FakeVectorDb(), parent_store_manager=FakeParentStore())
         pipeline.vector_db = None
-        with patch("config.RETRIEVAL_FUSION_MODE", "sparse"):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "sparse"):
             with self.assertRaises(ValueError):
                 pipeline.search_child_chunk_documents("q", 5)
 
     def test_reranker_enabled_expands_retrieval_limit(self):
         pipeline = self._pipeline([child_doc()])
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \
-                patch("config.RERANKER_ENABLED", True), \
-                patch("config.RERANKER_TOP_N", 40):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), \
+                patch("agentic_rag.config.RERANKER_ENABLED", True), \
+                patch("agentic_rag.config.RERANKER_TOP_N", 40):
             results = pipeline.search_child_chunk_documents("q", 5)
         self.assertEqual(len(results), 1)
 
@@ -137,18 +137,18 @@ class TestSearchChildChunkDocuments(unittest.TestCase):
 class TestSearchChildChunks(unittest.TestCase):
     def test_no_relevant_chunks(self):
         pipeline = RetrievalPipeline(vector_db=FakeVectorDb([]), parent_store_manager=FakeParentStore())
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"), patch("config.RERANKER_ENABLED", False):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), patch("agentic_rag.config.RERANKER_ENABLED", False):
             self.assertEqual(pipeline.search_child_chunks("q", 5), "NO_RELEVANT_CHUNKS")
 
     def test_retrieval_error_branch(self):
         pipeline = RetrievalPipeline(vector_db=FakeVectorDb([]), parent_store_manager=FakeParentStore())
-        with patch("config.RETRIEVAL_FUSION_MODE", "bogus"):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "bogus"):
             result = pipeline.search_child_chunks("q", 5)
         self.assertTrue(result.startswith("RETRIEVAL_ERROR:"))
 
     def test_returns_formatted_results(self):
         pipeline = RetrievalPipeline(vector_db=FakeVectorDb([child_doc()]), parent_store_manager=FakeParentStore())
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"), patch("config.RERANKER_ENABLED", False):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), patch("agentic_rag.config.RERANKER_ENABLED", False):
             result = pipeline.search_child_chunks("q", 5)
         self.assertIn("Parent ID: parent_1", result)
 
@@ -174,31 +174,31 @@ class TestRerankChildDocuments(unittest.TestCase):
     def test_disabled_truncates_to_final_top_k(self):
         pipeline = self._pipeline()
         docs = [child_doc(chunk_id=f"c{i}", parent_id=f"p{i}") for i in range(5)]
-        with patch("config.RERANKER_ENABLED", False), patch("config.RERANKER_FINAL_TOP_K", 2):
+        with patch("agentic_rag.config.RERANKER_ENABLED", False), patch("agentic_rag.config.RERANKER_FINAL_TOP_K", 2):
             result = pipeline.rerank_child_documents("q", docs)
         self.assertEqual(len(result), 2)
 
     def test_empty_docs_returns_truncated(self):
         pipeline = self._pipeline()
-        with patch("config.RERANKER_ENABLED", True), patch("config.RERANKER_FINAL_TOP_K", 3):
+        with patch("agentic_rag.config.RERANKER_ENABLED", True), patch("agentic_rag.config.RERANKER_FINAL_TOP_K", 3):
             result = pipeline.rerank_child_documents("q", [])
         self.assertEqual(result, [])
 
     def test_top_k_zero_returns_empty(self):
         pipeline = self._pipeline()
         docs = [child_doc()]
-        with patch("config.RERANKER_ENABLED", True), patch("config.RERANKER_TOP_N", 40), \
-                patch("config.RERANKER_FINAL_TOP_K", 0):
+        with patch("agentic_rag.config.RERANKER_ENABLED", True), patch("agentic_rag.config.RERANKER_TOP_N", 40), \
+                patch("agentic_rag.config.RERANKER_FINAL_TOP_K", 0):
             result = pipeline.rerank_child_documents("q", docs)
         self.assertEqual(result, [])
 
     def test_successful_rerank(self):
         pipeline = self._pipeline()
         docs = [child_doc(chunk_id=f"c{i}", parent_id=f"p{i}") for i in range(3)]
-        with patch("config.RERANKER_ENABLED", True), patch("config.RERANKER_TOP_N", 40), \
-                patch("config.RERANKER_FINAL_TOP_K", 2), \
-                patch("config.RERANKER_SCORE_THRESHOLD", 0.1), \
-                patch("retrieval.pipeline.get_reranker", return_value=FakeReranker()):
+        with patch("agentic_rag.config.RERANKER_ENABLED", True), patch("agentic_rag.config.RERANKER_TOP_N", 40), \
+                patch("agentic_rag.config.RERANKER_FINAL_TOP_K", 2), \
+                patch("agentic_rag.config.RERANKER_SCORE_THRESHOLD", 0.1), \
+                patch("agentic_rag.retrieval.pipeline.get_reranker", return_value=FakeReranker()):
             result = pipeline.rerank_child_documents("q", docs)
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0].metadata["rerank_rank"], 1)
@@ -206,10 +206,10 @@ class TestRerankChildDocuments(unittest.TestCase):
     def test_reranker_unavailable_falls_back(self):
         pipeline = self._pipeline()
         docs = [child_doc(chunk_id=f"c{i}", parent_id=f"p{i}") for i in range(3)]
-        with patch("config.RERANKER_ENABLED", True), patch("config.RERANKER_TOP_N", 40), \
-                patch("config.RERANKER_FINAL_TOP_K", 2), \
-                patch("config.RERANKER_SCORE_THRESHOLD", 0.1), \
-                patch("retrieval.pipeline.get_reranker",
+        with patch("agentic_rag.config.RERANKER_ENABLED", True), patch("agentic_rag.config.RERANKER_TOP_N", 40), \
+                patch("agentic_rag.config.RERANKER_FINAL_TOP_K", 2), \
+                patch("agentic_rag.config.RERANKER_SCORE_THRESHOLD", 0.1), \
+                patch("agentic_rag.retrieval.pipeline.get_reranker",
                       return_value=FakeReranker(error=RerankerUnavailable("nope"))):
             result = pipeline.rerank_child_documents("q", docs)
         self.assertEqual(len(result), 2)
@@ -218,10 +218,10 @@ class TestRerankChildDocuments(unittest.TestCase):
     def test_generic_exception_falls_back(self):
         pipeline = self._pipeline()
         docs = [child_doc(chunk_id=f"c{i}", parent_id=f"p{i}") for i in range(3)]
-        with patch("config.RERANKER_ENABLED", True), patch("config.RERANKER_TOP_N", 40), \
-                patch("config.RERANKER_FINAL_TOP_K", 2), \
-                patch("config.RERANKER_SCORE_THRESHOLD", 0.1), \
-                patch("retrieval.pipeline.get_reranker",
+        with patch("agentic_rag.config.RERANKER_ENABLED", True), patch("agentic_rag.config.RERANKER_TOP_N", 40), \
+                patch("agentic_rag.config.RERANKER_FINAL_TOP_K", 2), \
+                patch("agentic_rag.config.RERANKER_SCORE_THRESHOLD", 0.1), \
+                patch("agentic_rag.retrieval.pipeline.get_reranker",
                       return_value=FakeReranker(error=RuntimeError("boom"))):
             result = pipeline.rerank_child_documents("q", docs)
         self.assertEqual(len(result), 2)
@@ -363,7 +363,7 @@ class TestSelectContextPolicy(unittest.TestCase):
 
     def test_invalid_config_returns_parent(self):
         pipeline = self._pipeline()
-        with patch("config.RETRIEVAL_CONTEXT_POLICY", "bogus"):
+        with patch("agentic_rag.config.RETRIEVAL_CONTEXT_POLICY", "bogus"):
             policy, reason = pipeline.select_context_policy("q", [], [])
         self.assertEqual(policy, "parent")
         self.assertTrue(reason.startswith("invalid_config:"))
@@ -371,8 +371,8 @@ class TestSelectContextPolicy(unittest.TestCase):
     def test_multiple_child_hits_same_parent(self):
         pipeline = self._pipeline()
         docs = [child_doc(chunk_id="a", parent_id="p1"), child_doc(chunk_id="b", parent_id="p1")]
-        with patch("config.RETRIEVAL_CONTEXT_POLICY", "adaptive"), \
-                patch("config.RETRIEVAL_PARENT_EXPAND_MIN_HITS", 2):
+        with patch("agentic_rag.config.RETRIEVAL_CONTEXT_POLICY", "adaptive"), \
+                patch("agentic_rag.config.RETRIEVAL_PARENT_EXPAND_MIN_HITS", 2):
             policy, reason = pipeline.select_context_policy("plain query", docs, [])
         self.assertEqual(policy, "parent")
         self.assertEqual(reason, "multiple_child_hits_same_parent")
@@ -380,8 +380,8 @@ class TestSelectContextPolicy(unittest.TestCase):
     def test_default_neighbor_context(self):
         pipeline = self._pipeline()
         docs = [child_doc(chunk_id="a", parent_id="p1")]
-        with patch("config.RETRIEVAL_CONTEXT_POLICY", "adaptive"), \
-                patch("config.RETRIEVAL_PARENT_EXPAND_MIN_HITS", 2):
+        with patch("agentic_rag.config.RETRIEVAL_CONTEXT_POLICY", "adaptive"), \
+                patch("agentic_rag.config.RETRIEVAL_PARENT_EXPAND_MIN_HITS", 2):
             policy, reason = pipeline.select_context_policy("plain statement", docs, [])
         self.assertEqual(policy, "neighbor")
         self.assertEqual(reason, "default_neighbor_context")
@@ -394,13 +394,13 @@ class TestRagResearch(unittest.TestCase):
         vector_db = FakeVectorDb([child_doc(parent_id="")])
         store = FakeParentStore(parents={})
         pipeline = RetrievalPipeline(vector_db=vector_db, parent_store_manager=store)
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \
-                patch("config.RERANKER_ENABLED", True), \
-                patch("config.RERANKER_TOP_N", 40), \
-                patch("config.RERANKER_FINAL_TOP_K", 3), \
-                patch("config.RERANKER_SCORE_THRESHOLD", 0.6), \
-                patch("config.RETRIEVAL_CONTEXT_POLICY", "parent"), \
-                patch("retrieval.pipeline.get_reranker",
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), \
+                patch("agentic_rag.config.RERANKER_ENABLED", True), \
+                patch("agentic_rag.config.RERANKER_TOP_N", 40), \
+                patch("agentic_rag.config.RERANKER_FINAL_TOP_K", 3), \
+                patch("agentic_rag.config.RERANKER_SCORE_THRESHOLD", 0.6), \
+                patch("agentic_rag.config.RETRIEVAL_CONTEXT_POLICY", "parent"), \
+                patch("agentic_rag.retrieval.pipeline.get_reranker",
                       return_value=FakeReranker(error=RerankerUnavailable("x"))):
             result = json.loads(pipeline.rag_research("question"))
         self.assertEqual(result["diagnostics"]["evidence_status"], "low_score")
@@ -409,8 +409,8 @@ class TestRagResearch(unittest.TestCase):
         vector_db = FakeVectorDb([])
         store = FakeParentStore(parents={})
         pipeline = RetrievalPipeline(vector_db=vector_db, parent_store_manager=store)
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \
-                patch("config.RERANKER_ENABLED", False):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), \
+                patch("agentic_rag.config.RERANKER_ENABLED", False):
             result = json.loads(pipeline.rag_research("question"))
         self.assertEqual(result["diagnostics"]["evidence_status"], "insufficient")
         self.assertEqual(result["gaps"], ["No relevant document context was retrieved."])
@@ -419,8 +419,8 @@ class TestRagResearch(unittest.TestCase):
         store = FakeParentStore(parents={"parent_keep": parent_row("parent_keep", "kept")})
         vector_db = FakeVectorDb([child_doc(parent_id="parent_1")])
         pipeline = RetrievalPipeline(vector_db=vector_db, parent_store_manager=store)
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \
-                patch("config.RERANKER_ENABLED", False):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), \
+                patch("agentic_rag.config.RERANKER_ENABLED", False):
             result = json.loads(pipeline.rag_research("q", keep_parent_ids=["parent_keep"]))
         self.assertEqual(result["diagnostics"]["evidence_status"], "sufficient")
         self.assertIn("parent_keep", result["parent_ids"])
@@ -432,9 +432,9 @@ class TestRagResearch(unittest.TestCase):
             child_doc(chunk_id="c2", parent_id="parent_excluded"),
         ])
         pipeline = RetrievalPipeline(vector_db=vector_db, parent_store_manager=store)
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \
-                patch("config.RERANKER_ENABLED", False), \
-                patch("config.RETRIEVAL_CONTEXT_POLICY", "parent"):
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), \
+                patch("agentic_rag.config.RERANKER_ENABLED", False), \
+                patch("agentic_rag.config.RETRIEVAL_CONTEXT_POLICY", "parent"):
             result = json.loads(pipeline.rag_research(
                 "q", focus="myfocus", exclude_parent_ids=["parent_excluded"],
                 retry_reason="retry1"))
@@ -446,8 +446,8 @@ class TestRagResearch(unittest.TestCase):
         store = FakeParentStore()
         vector_db = FakeVectorDb([child_doc()])
         pipeline = RetrievalPipeline(vector_db=vector_db, parent_store_manager=store)
-        with patch("config.RETRIEVAL_FUSION_MODE", "dense"), \
-                patch("config.RERANKER_ENABLED", False), \
+        with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), \
+                patch("agentic_rag.config.RERANKER_ENABLED", False), \
                 patch.object(pipeline, "select_context_policy", side_effect=RuntimeError("boom")):
             result = json.loads(pipeline.rag_research("q", keep_parent_ids=["pk"]))
         self.assertEqual(result["diagnostics"]["evidence_status"], "error")

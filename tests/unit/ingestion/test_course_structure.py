@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-from ingestion.course_structure import CourseStructureStore, parse_course_names
+from agentic_rag.ingestion.course_structure import CourseStructureStore, parse_course_names
 
 
 def sample_markdown():

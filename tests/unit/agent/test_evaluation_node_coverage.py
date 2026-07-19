@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from rag_agent.nodes.evaluation import (
+from agentic_rag.agent.nodes.evaluation import (
     _collect_retrieved_context,
     _parse_answer_evaluation,
     _retrieval_evidence,
@@ -96,7 +96,7 @@ class TestRetrievalEvidence(unittest.TestCase):
                 )
             ]
         }
-        with patch("config.RERANKER_SCORE_THRESHOLD", 0.5):
+        with patch("agentic_rag.config.RERANKER_SCORE_THRESHOLD", 0.5):
             evidence = _retrieval_evidence(state)
         self.assertEqual(evidence["status"], "sufficient")
         self.assertEqual(evidence["best_rerank_score"], 0.95)
@@ -116,8 +116,8 @@ class TestRetrievalEvidence(unittest.TestCase):
                 )
             ]
         }
-        with patch("config.RERANKER_SCORE_THRESHOLD", None), patch(
-            "config.RERANKER_ENABLED", False
+        with patch("agentic_rag.config.RERANKER_SCORE_THRESHOLD", None), patch(
+            "agentic_rag.config.RERANKER_ENABLED", False
         ):
             evidence = _retrieval_evidence(state)
         # contexts present, no usable score, threshold None -> sufficient
@@ -136,7 +136,7 @@ class TestRetrievalEvidence(unittest.TestCase):
                 )
             ]
         }
-        with patch("config.RERANKER_SCORE_THRESHOLD", 0.5):
+        with patch("agentic_rag.config.RERANKER_SCORE_THRESHOLD", 0.5):
             evidence = _retrieval_evidence(state)
         self.assertEqual(evidence["status"], "low_score")
         self.assertEqual(evidence["reason"], "best_rerank_score_below_threshold")
@@ -154,8 +154,8 @@ class TestRetrievalEvidence(unittest.TestCase):
                 )
             ]
         }
-        with patch("config.RERANKER_SCORE_THRESHOLD", None), patch(
-            "config.RERANKER_ENABLED", True
+        with patch("agentic_rag.config.RERANKER_SCORE_THRESHOLD", None), patch(
+            "agentic_rag.config.RERANKER_ENABLED", True
         ):
             evidence = _retrieval_evidence(state)
         # default threshold 0.0 -> -0.2 below it -> low_score
@@ -264,7 +264,7 @@ class TestEvaluateAnswer(unittest.TestCase):
 
     def test_satisfactory_answer(self):
         llm = ConfigurableLLM(json.dumps({"is_satisfactory": True, "critique": ""}))
-        with patch("config.RERANKER_SCORE_THRESHOLD", 0.5):
+        with patch("agentic_rag.config.RERANKER_SCORE_THRESHOLD", 0.5):
             result = evaluate_answer(self._sufficient_state(), llm)
         self.assertTrue(result["answer_is_satisfactory"])
         self.assertEqual(result["retrieval_evidence_status"], "sufficient")
@@ -283,7 +283,7 @@ class TestEvaluateAnswer(unittest.TestCase):
                 }
             )
         )
-        with patch("config.RERANKER_SCORE_THRESHOLD", 0.5):
+        with patch("agentic_rag.config.RERANKER_SCORE_THRESHOLD", 0.5):
             result = evaluate_answer(self._sufficient_state(), llm)
         self.assertFalse(result["answer_is_satisfactory"])
         self.assertEqual(result["retrieval_evidence_status"], "insufficient")
@@ -303,7 +303,7 @@ class TestEvaluateAnswer(unittest.TestCase):
                 }
             )
         )
-        with patch("config.RERANKER_SCORE_THRESHOLD", 0.5):
+        with patch("agentic_rag.config.RERANKER_SCORE_THRESHOLD", 0.5):
             result = evaluate_answer(self._sufficient_state(), llm)
         feedback = result["messages"][0].content
         self.assertIn("Unspecified gaps", feedback)

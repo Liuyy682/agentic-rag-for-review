@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 from langchain_core.messages import AIMessageChunk, ToolMessage
 
-import chat.chat_interface as ci
-from chat.chat_interface import (
+import agentic_rag.chat.chat_interface as ci
+from agentic_rag.chat.chat_interface import (
     ChatInterface,
     make_message,
     find_msg_idx,
