@@ -79,7 +79,7 @@ class CourseStructureCoverageTest(unittest.TestCase):
         first_id = store.ensure_course("Math")
         # Inject a fake course occupying the deterministic id for a different name
         # to force the while-loop suffixing path.
-        from ingestion.course_structure import _stable_id
+        from agentic_rag.ingestion.course_structure import _stable_id
 
         colliding_id = _stable_id("course", "Physics")
         store.data["courses"][colliding_id] = {

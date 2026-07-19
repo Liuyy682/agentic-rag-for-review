@@ -308,7 +308,7 @@ class DocumentManager:
         if engine == "none":
             return markdown_text
 
-        from ingestion.image_describer import enhance_markdown_image_references, create_image_describer
+        from agentic_rag.ingestion.image_describer import enhance_markdown_image_references, create_image_describer
 
         describe_fn = create_image_describer()
         if describe_fn is None:

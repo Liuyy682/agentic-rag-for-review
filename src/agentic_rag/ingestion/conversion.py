@@ -113,11 +113,11 @@ def convert_document_to_markdown(
 
     # --- Extract images for PPTX / DOCX (MarkItDown doesn't save them) ---
     if suffix == ".pptx":
-        from ingestion.image_extractor import extract_images_from_pptx
+        from agentic_rag.ingestion.image_extractor import extract_images_from_pptx
         doc_image_dir.mkdir(parents=True, exist_ok=True)
         extract_images_from_pptx(document_path, doc_image_dir)
     elif suffix == ".docx":
-        from ingestion.image_extractor import extract_images_from_docx, clean_docx_broken_image_refs
+        from agentic_rag.ingestion.image_extractor import extract_images_from_docx, clean_docx_broken_image_refs
         doc_image_dir.mkdir(parents=True, exist_ok=True)
         extract_images_from_docx(document_path, doc_image_dir)
         markdown_text = clean_docx_broken_image_refs(markdown_text, doc_image_dir)

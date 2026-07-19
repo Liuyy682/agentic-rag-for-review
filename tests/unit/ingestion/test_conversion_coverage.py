@@ -116,9 +116,14 @@ class TestEstimateContextTokens(unittest.TestCase):
         def __init__(self, content):
             self.content = content
 
+    class _Encoding:
+        def encode(self, text):
+            return list(text)
+
     def test_counts_tokens_across_messages(self):
         messages = [self._Msg("hello world"), self._Msg("another message")]
-        total = conversion.estimate_context_tokens(messages)
+        with patch.object(conversion.tiktoken, "encoding_for_model", return_value=self._Encoding()):
+            total = conversion.estimate_context_tokens(messages)
         self.assertIsInstance(total, int)
         self.assertGreater(total, 0)
 
@@ -127,12 +132,15 @@ class TestEstimateContextTokens(unittest.TestCase):
             pass
 
         messages = [self._Msg(""), NoContent(), self._Msg("text")]
-        total = conversion.estimate_context_tokens(messages)
+        with patch.object(conversion.tiktoken, "encoding_for_model", return_value=self._Encoding()):
+            total = conversion.estimate_context_tokens(messages)
         self.assertGreater(total, 0)
 
     def test_falls_back_to_cl100k_when_model_lookup_fails(self):
-        with patch(
-            "tiktoken.encoding_for_model", side_effect=KeyError("no model")
+        with patch.object(
+            conversion.tiktoken, "encoding_for_model", side_effect=KeyError("no model")
+        ), patch.object(
+            conversion.tiktoken, "get_encoding", return_value=self._Encoding()
         ):
             total = conversion.estimate_context_tokens([self._Msg("fallback text")])
         self.assertGreater(total, 0)

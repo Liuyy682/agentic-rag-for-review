@@ -197,7 +197,7 @@ def _rerank_candidates(
 
     docs = [doc for doc, _ in docs_with_scores[: config.RERANKER_TOP_N]]
     try:
-        from retrieval.reranker import get_reranker
+        from agentic_rag.retrieval.reranker import get_reranker
 
         reranked = get_reranker().rerank(
             query=query,
@@ -208,7 +208,7 @@ def _rerank_candidates(
     except Exception:
         return docs_with_scores[:top_k]
 
-    from retrieval.fusion import get_doc_key
+    from agentic_rag.retrieval.fusion import get_doc_key
 
     original_scores = {get_doc_key(doc): score for doc, score in docs_with_scores}
     return [(doc, original_scores.get(get_doc_key(doc))) for doc in reranked]

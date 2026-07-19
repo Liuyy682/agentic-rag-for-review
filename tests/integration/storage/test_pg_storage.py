@@ -229,7 +229,7 @@ def test_vector_store_edge_cases(pg_storage):
 
 
 def test_make_ts_query_fallback_without_jieba_tokens():
-    from storage import pg_vector_store
+    from agentic_rag.storage import pg_vector_store
 
     # A query that jieba tokenizes to nothing usable falls back to space→" & ".
     assert pg_vector_store._make_ts_query("   ") == ""
@@ -237,7 +237,7 @@ def test_make_ts_query_fallback_without_jieba_tokens():
 
 
 def test_bounded_varchar_preserves_short_values_and_truncates_long_metadata():
-    from storage import pg_vector_store
+    from agentic_rag.storage import pg_vector_store
 
     assert pg_vector_store._bounded_varchar("short") == "short"
     assert pg_vector_store._bounded_varchar(None) is None

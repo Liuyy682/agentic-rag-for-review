@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     env_file:
-      - path: project/.env
+      - path: .env
         required: false
     environment:
       DATABASE_URL: postgresql://agentic_rag:dev_only@postgres:5432/agentic_rag

@@ -272,7 +272,7 @@ class StageLogTest(unittest.TestCase):
                 manager = DocumentManager(FakeRagSystem())
                 manager.add_documents_detailed([str(source)])
 
-                log_path = Path(config.INGESTION_LOG_DIR) / "agentic_rag.ingestion.jsonl"
+                log_path = Path(config.INGESTION_LOG_DIR) / "ingestion.jsonl"
                 self.assertTrue(log_path.exists())
                 self.assertIn("notes.md", log_path.read_text(encoding="utf-8"))
 
@@ -423,7 +423,7 @@ class FailureBranchTest(unittest.TestCase):
             with ConfigPatch(**build_test_config(temp_path)):
                 source = self._source(temp_path)
                 manager = DocumentManager(FakeRagSystem())
-                from ingestion.cleaning import CleanedMarkdown
+                from agentic_rag.ingestion.cleaning import CleanedMarkdown
                 empty = CleanedMarkdown(
                     source_file="notes.md", cleaned_text="", pages=[], events=[], candidates=[]
                 )

@@ -1,6 +1,6 @@
 # agentic-rag-for-review
 
-面向课程资料和本地文档问答的 Agentic RAG 项目。当前主应用是一个 FastAPI/Uvicorn 服务：`project/app.py` 启动后提供静态 Web 页面、内部 `/api/*` 接口和 SSE 流式聊天；后端使用 LangGraph 编排 RAG Agent，使用 PostgreSQL + pgvector 存储知识库。
+面向课程资料和本地文档问答的 Agentic RAG 项目。当前主应用通过 `python -m agentic_rag` 启动 FastAPI/Uvicorn 服务，启动后提供静态 Web 页面、内部 `/api/*` 接口和 SSE 流式聊天；后端使用 LangGraph 编排 RAG Agent，使用 PostgreSQL + pgvector 存储知识库。
 
 ## 当前能力
 
@@ -11,7 +11,7 @@
 - 根据问题类型和命中情况选择子块、邻近子块或父块作为回答上下文。
 - LangGraph 编排会话摘要、意图识别、查询改写、澄清、任务规划、检索、答案评估、降级回答和聚合。
 - 支持课程范围问答、课程/章节重命名、会话创建/删除和 SQLite 会话记忆。
-- `project/evaluation` 提供 RAGBench、RAGAS、本地检索评测和分块消融脚本。
+- `evaluation` 提供 RAGBench、RAGAS、本地检索评测和分块消融脚本。
 
 ## 架构
 
@@ -27,20 +27,28 @@ Browser static UI
 ```
 
 主要路径：
+```text
+.
+├── src/agentic_rag/   # 在线应用
+├── evaluation/        # 离线评测
+├── tests/             # 单元、集成和评测测试
+├── docs/
+└── docker/
+```
 
-- `project/app.py`：当前主入口，启动 Uvicorn 服务。
-- `project/server.py`：FastAPI 应用，挂载 `/static` 并注册 `/api` 路由。
-- `project/static/`：当前浏览器 UI。
-- `project/api/`：文档、课程、会话和 SSE 聊天接口。
-- `project/application/rag_application.py`：组装 RAG 系统、文档管理器和聊天接口。
-- `project/core/rag_system.py`：初始化 DeepSeek/OpenAI-compatible 聊天模型、LangGraph、存储和检索工具。
-- `project/ingestion/`：文档转换、清洗、分块、索引 manifest、课程结构和文件完整性检查。
-- `project/storage/`：PostgreSQL 连接、pgvector 子块检索和父块存储。
-- `project/retrieval/`：RRF 融合、cross-encoder 重排和上下文策略选择。
-- `project/rag_agent/`：LangGraph 状态、节点、路由、提示词、schema 和工具。
-- `project/evaluation/`：评测数据、指标、报告和 runner。
 
-`project/ui/gradio_app.py` 是旧版/备用 Gradio UI 模块；当前 `python project/app.py` 不会使用它。
+- `src/agentic_rag/__main__.py`：当前主入口，启动 Uvicorn 服务。
+- `src/agentic_rag/server.py`：FastAPI 应用，挂载 `/static` 并注册 `/api` 路由。
+- `src/agentic_rag/web/static/`：当前浏览器 UI。
+- `src/agentic_rag/api/`：文档、课程、会话和 SSE 聊天接口。
+- `src/agentic_rag/application/rag_application.py`：组装 RAG 系统、文档管理器和聊天接口。
+- `src/agentic_rag/core/rag_system.py`：初始化 DeepSeek/OpenAI-compatible 聊天模型、LangGraph、存储和检索工具。
+- `src/agentic_rag/ingestion/`：文档转换、清洗、分块、索引 manifest、课程结构和文件完整性检查。
+- `src/agentic_rag/storage/`：PostgreSQL 连接、pgvector 子块检索和父块存储。
+- `src/agentic_rag/retrieval/`：RRF 融合、cross-encoder 重排和上下文策略选择。
+- `src/agentic_rag/agent/`：LangGraph 状态、节点、路由、提示词、schema 和工具。
+- `evaluation/`：评测数据、指标、报告和 runner。
+
 
 ## 技术栈
 
@@ -67,6 +75,7 @@ Browser static UI
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install -e .
 ```
 
 如果使用 PaddleOCR 图片分析（`IMAGE_ANALYSIS_ENGINE=paddleocr`），还需安装可选依赖：
@@ -83,10 +92,10 @@ PaddleOCR 首次运行时会自动下载模型文件（约 500MB），请确保�
 docker compose up -d postgres
 ```
 
-创建环境配置。项目会先读取根目录 `.env`，再读取 `project/.env` 并以 `project/.env` 覆盖同名配置：
+创建环境配置。应用只读取仓库根目录的 `.env`：
 
 ```bash
-cp project/.env.example project/.env
+cp .env.example .env
 ```
 
 至少需要配置：
@@ -99,7 +108,7 @@ DEEPSEEK_MODEL=deepseek-chat
 启动应用：
 
 ```bash
-python project/app.py
+python -m agentic_rag
 ```
 
 浏览器访问：
@@ -111,8 +120,8 @@ http://localhost:7860
 也可以用 Docker 同时启动应用和数据库：
 
 ```bash
-cp project/.env.example project/.env
-# 填写 project/.env 中的 DEEPSEEK_API_KEY
+cp .env.example .env
+# 填写 .env 中的 DEEPSEEK_API_KEY
 # 首次启动会安装 Python 依赖，后续模型文件缓存在 hf_cache 卷中
 docker compose up --build app
 ```
@@ -121,7 +130,7 @@ docker compose up --build app
 
 ## 配置要点
 
-当前 LLM 入口在 `project/core/rag_system.py`，使用 `ChatOpenAI` 连接 DeepSeek/OpenAI-compatible API：
+当前 LLM 入口在 `src/agentic_rag/core/rag_system.py`，使用 `ChatOpenAI` 连接 DeepSeek/OpenAI-compatible API：
 
 ```env
 DEEPSEEK_API_KEY=your_api_key
@@ -137,7 +146,7 @@ postgresql://agentic_rag:dev_only@localhost:5432/agentic_rag
 
 可以通过 `DATABASE_URL` 覆盖。
 
-默认模型与检索配置来自 `project/config.py`：
+默认模型与检索配置来自 `src/agentic_rag/config.py`：
 
 ```python
 DENSE_MODEL = "BAAI/bge-base-zh-v1.5"
@@ -252,12 +261,12 @@ OCR/VLM 分析结果会以 `OCR:` / `RAG_SUMMARY:` / `KEY_TERMS:` 三字段格�
 
 ## 评测
 
-评测工具位于 `project/evaluation`，详细说明见 `project/evaluation/README.md`。
+评测工具位于 `evaluation`，详细说明见 `evaluation/README.md`。
 
 RAGBench oracle-context 生成评测示例：
 
 ```bash
-python project/evaluation/runners/ragbench_eval_runner.py \
+python -m evaluation.runners.ragbench_eval_runner \
   --subset covidqa \
   --split test \
   --limit 50 \
@@ -269,20 +278,20 @@ python project/evaluation/runners/ragbench_eval_runner.py \
 本地检索评测示例：
 
 ```bash
-python project/evaluation/runners/retrieval_eval_runner.py \
-  --dataset project/evaluation/datasets/eval_questions.jsonl \
+python -m evaluation.runners.retrieval_eval_runner \
+  --dataset evaluation/datasets/eval_questions.jsonl \
   --top-k 10 \
   --output-dir runtime/evaluation_reports/local_retrieval
 ```
 
-注意：仓库默认的 `project/evaluation/datasets/eval_questions.jsonl` 可能为空或仅用于占位；要得出效果结论，需要使用带真实 `gold_parent_ids` 或 `gold_child_ids` 的数据集，并同时查看 `validity_summary.json` 和 `evaluation_warnings.jsonl`。
+注意：仓库默认的 `evaluation/datasets/eval_questions.jsonl` 可能为空或仅用于占位；要得出效果结论，需要使用带真实 `gold_parent_ids` 或 `gold_child_ids` 的数据集，并同时查看 `validity_summary.json` 和 `evaluation_warnings.jsonl`。
 
 ## 验证
 
 文档改动后的最小代码验证：
 
 ```bash
-python -m py_compile project/app.py project/server.py project/config.py
+python -m compileall -q src evaluation tests
 ```
 
 Markdown 只描述当前代码路径和配置，不包含未由代码或评测产物支撑的效果指标。

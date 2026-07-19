@@ -1,6 +1,6 @@
 # Agentic RAG Developer Notes
 
-This project is an Agentic RAG system for local course material and document question answering. The current main application is a FastAPI/Uvicorn service started by `python project/app.py`; it serves the static browser UI, internal `/api/*` routes, and Server-Sent Events chat streaming.
+This project is an Agentic RAG system for local course material and document question answering. The current main application is a FastAPI/Uvicorn service started by `python -m agentic_rag`; it serves the static browser UI, internal `/api/*` routes, and Server-Sent Events chat streaming.
 
 ## Overview
 
@@ -13,7 +13,7 @@ Current capabilities:
 - Select child, neighboring child, or full parent context according to query shape and retrieval hits.
 - Use LangGraph to orchestrate history summarization, intent recognition, query rewriting, clarification, task planning, retrieval, answer evaluation, fallback answers, and aggregation.
 - Scope chat to a course, manage courses/sections, and persist lightweight session memory in SQLite.
-- Run RAGBench, RAGAS, local retrieval, and chunking ablation evaluation scripts under `project/evaluation`.
+- Run RAGBench, RAGAS, local retrieval, and chunking ablation evaluation scripts under `evaluation`.
 
 ## Quick Start
 
@@ -23,6 +23,7 @@ Install dependencies:
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+pip install -e .
 ```
 
 Start PostgreSQL with pgvector:
@@ -34,7 +35,7 @@ docker compose up -d postgres
 Create configuration:
 
 ```bash
-cp project/.env.example project/.env
+cp .env.example .env
 ```
 
 Set at least:
@@ -47,7 +48,7 @@ DEEPSEEK_MODEL=deepseek-chat
 Start the application:
 
 ```bash
-python project/app.py
+python -m agentic_rag
 ```
 
 Open:
@@ -59,13 +60,13 @@ http://localhost:7860
 To run the app and database with Docker:
 
 ```bash
-cp project/.env.example project/.env
-# Fill DEEPSEEK_API_KEY in project/.env
+cp .env.example .env
+# Fill DEEPSEEK_API_KEY in .env
 # The first run installs Python dependencies; Hugging Face model files are cached in the hf_cache volume.
 docker compose up --build app
 ```
 
-Configuration is loaded from the repository root `.env` first, then from `project/.env` with override behavior. The Docker image excludes `.env` files; `docker-compose.yml` passes `project/.env` at runtime when present and overrides `DATABASE_URL` to use the Compose `postgres` service.
+Configuration is loaded only from the repository root `.env`. The Docker image excludes `.env` files; `docker-compose.yml` passes `.env` at runtime when present and overrides `DATABASE_URL` to use the Compose `postgres` service.
 
 ## Architecture
 
@@ -81,24 +82,32 @@ Browser static UI
 ```
 
 Important paths:
+```text
+.
+├── src/agentic_rag/   # online application
+├── evaluation/        # offline evaluation
+├── tests/             # unit, integration, and evaluation tests
+├── docs/
+└── docker/
+```
 
-- `project/app.py`: main entrypoint; starts Uvicorn on port `7860`.
-- `project/server.py`: FastAPI app; serves `/`, `/static`, and `/api`.
-- `project/static/`: current browser UI.
-- `project/api/`: document, course, session, task, and streaming chat routes.
-- `project/application/rag_application.py`: wires the RAG system, document manager, and chat interface.
-- `project/core/rag_system.py`: initializes storage, `ChatOpenAI`, LangGraph, and retrieval tools.
-- `project/ingestion/`: conversion, Markdown cleaning, chunking, index manifest, file integrity, and course structure.
-- `project/storage/`: PostgreSQL connection handling, pgvector child chunk store, and parent chunk store.
-- `project/retrieval/`: RRF fusion, reranking, source filtering, and context policy selection.
-- `project/rag_agent/`: LangGraph state, nodes, edges, prompts, schemas, and tool factory.
-- `project/evaluation/`: datasets, metrics, validation, reports, and evaluation runners.
 
-`project/ui/gradio_app.py` is a legacy or alternate Gradio UI module. The current `python project/app.py` path does not mount it.
+- `src/agentic_rag/__main__.py`: main entrypoint; starts Uvicorn on port `7860`.
+- `src/agentic_rag/server.py`: FastAPI app; serves `/`, `/static`, and `/api`.
+- `src/agentic_rag/web/static/`: current browser UI.
+- `src/agentic_rag/api/`: document, course, session, task, and streaming chat routes.
+- `src/agentic_rag/application/rag_application.py`: wires the RAG system, document manager, and chat interface.
+- `src/agentic_rag/core/rag_system.py`: initializes storage, `ChatOpenAI`, LangGraph, and retrieval tools.
+- `src/agentic_rag/ingestion/`: conversion, Markdown cleaning, chunking, index manifest, file integrity, and course structure.
+- `src/agentic_rag/storage/`: PostgreSQL connection handling, pgvector child chunk store, and parent chunk store.
+- `src/agentic_rag/retrieval/`: RRF fusion, reranking, source filtering, and context policy selection.
+- `src/agentic_rag/agent/`: LangGraph state, nodes, edges, prompts, schemas, and tool factory.
+- `evaluation/`: datasets, metrics, validation, reports, and evaluation runners.
+
 
 ## Configuration
 
-The primary runtime settings are in `project/config.py`.
+The primary runtime settings are in `src/agentic_rag/config.py`.
 
 ### LLM
 
@@ -110,7 +119,7 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-chat
 ```
 
-`project/core/rag_system.py` requires `DEEPSEEK_API_KEY` before the RAG app can start.
+`src/agentic_rag/core/rag_system.py` requires `DEEPSEEK_API_KEY` before the RAG app can start.
 
 ### Database
 
@@ -188,7 +197,7 @@ LANGFUSE_SECRET_KEY=sk-lf-...
 LANGFUSE_BASE_URL=http://localhost:3000
 ```
 
-Legacy multimodal PDF image settings are present in `project/config.py` and `project/.env.example`, but the default MarkItDown conversion path is the primary document conversion flow.
+Legacy multimodal PDF image settings are present in `src/agentic_rag/config.py` and `.env.example`, but the default MarkItDown conversion path is the primary document conversion flow.
 
 ## Internal HTTP API
 
@@ -233,12 +242,12 @@ Runtime output is written under `runtime/`:
 
 ## Evaluation
 
-See `project/evaluation/README.md` for detailed evaluation modes and report validity rules.
+See `evaluation/README.md` for detailed evaluation modes and report validity rules.
 
 Oracle-context RAGBench generation example:
 
 ```bash
-python project/evaluation/runners/ragbench_eval_runner.py \
+python -m evaluation.runners.ragbench_eval_runner \
   --subset covidqa \
   --split test \
   --limit 50 \
@@ -250,8 +259,8 @@ python project/evaluation/runners/ragbench_eval_runner.py \
 Local retrieval example:
 
 ```bash
-python project/evaluation/runners/retrieval_eval_runner.py \
-  --dataset project/evaluation/datasets/eval_questions.jsonl \
+python -m evaluation.runners.retrieval_eval_runner \
+  --dataset evaluation/datasets/eval_questions.jsonl \
   --top-k 10 \
   --output-dir runtime/evaluation_reports/local_retrieval
 ```
@@ -259,8 +268,8 @@ python project/evaluation/runners/retrieval_eval_runner.py \
 Local RAGAS generation example:
 
 ```bash
-python project/evaluation/runners/ragas_eval_runner.py \
-  --dataset project/evaluation/datasets/eval_questions.jsonl \
+python -m evaluation.runners.ragas_eval_runner \
+  --dataset evaluation/datasets/eval_questions.jsonl \
   --top-k 10 \
   --output-dir runtime/evaluation_reports/local_ragas
 ```
@@ -281,7 +290,7 @@ Use evaluation numbers only with their dataset, split, limit, evaluation type, a
 Minimum code sanity check:
 
 ```bash
-python -m py_compile project/app.py project/server.py project/config.py
+python -m compileall -q src evaluation tests
 ```
 
 For documentation-only changes, the full test suite is not required unless a referenced command or behavior is changed.

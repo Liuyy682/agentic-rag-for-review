@@ -10,7 +10,6 @@ __pycache__/
 .DS_Store
 
 .env
-project/.env
 
 .cache/
 runtime/
@@ -25,6 +24,4 @@ parent_store/
 docs/
 notebooks/
 tests/
-project/interview/
-project/evaluation/datasets/ragbench_*_eval_questions.jsonl
-project/evaluation/datasets/ragbench_*_source_contexts.jsonl
+evaluation/

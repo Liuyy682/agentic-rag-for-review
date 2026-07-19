@@ -20,7 +20,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY pyproject.toml README.md ./
+COPY src ./src
+RUN pip install --no-cache-dir --no-deps .
 
 RUN useradd --create-home --uid 1000 appuser \
     && mkdir -p /app/runtime /app/.cache/huggingface \
@@ -28,4 +30,4 @@ RUN useradd --create-home --uid 1000 appuser \
 
 USER appuser
 EXPOSE 7860
-CMD ["python", "project/app.py"]
+CMD ["python", "-m", "agentic_rag"]
