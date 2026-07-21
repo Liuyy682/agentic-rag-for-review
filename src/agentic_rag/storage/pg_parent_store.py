@@ -109,6 +109,11 @@ class PgParentStoreManager:
                     (source_file, source_file, source_file),
                 )
 
+    def delete_by_document_id(self, document_id: str) -> None:
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM parent_chunks WHERE doc_id = %s", (document_id,))
+
     def clear_store(self) -> None:
         with transaction() as conn:
             with conn.cursor() as cur:

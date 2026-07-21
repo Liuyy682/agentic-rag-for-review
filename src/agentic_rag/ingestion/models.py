@@ -31,6 +31,7 @@ class IngestionStageResult:
 @dataclass
 class DocumentIngestionResult:
     source_path: str
+    document_id: str | None = None
     source_file: str | None = None
     original_file: str | None = None
     raw_file_hash: str | None = None
@@ -81,6 +82,7 @@ class DocumentInfo:
     courses: list[str]
     updated_at: str | None
     status: str
+    document_id: str | None = None
 
 
 @dataclass

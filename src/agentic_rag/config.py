@@ -52,6 +52,13 @@ DATABASE_URL = os.environ.get(
     "postgresql://agentic_rag:dev_only@localhost:5432/agentic_rag",
 )
 
+# --- Object Storage Configuration ---
+MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "")
+MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "")
+MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "")
+MINIO_BUCKET = os.environ.get("MINIO_BUCKET", "")
+MINIO_SECURE = _env_bool("MINIO_SECURE", True)
+
 # --- Retrieval Fusion Configuration ---
 RETRIEVAL_FUSION_MODE = "rrf"
 # Options: "rrf", "dense", "sparse"

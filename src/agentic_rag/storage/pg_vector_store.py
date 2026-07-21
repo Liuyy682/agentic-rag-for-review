@@ -130,6 +130,11 @@ class PgVectorManager:
                     (source_file, source_file),
                 )
 
+    def delete_by_document_id(self, document_id: str) -> None:
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM child_chunks WHERE doc_id = %s", (document_id,))
+
     def dense_search(self, query: str, k: int) -> List[Document]:
         embedding = self._dense_embeddings.embed_query(query)
         vector = _vector_literal(embedding)

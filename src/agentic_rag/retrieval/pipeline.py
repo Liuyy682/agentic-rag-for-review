@@ -44,6 +44,7 @@ class RetrievalPipeline:
             doc for doc in docs
             if (doc.metadata or {}).get("source_file") in self.allowed_source_files
             or (doc.metadata or {}).get("source") in self.allowed_source_files
+            or (doc.metadata or {}).get("doc_id") in self.allowed_source_files
         ]
 
     def format_child_chunk_results(self, results) -> str:
@@ -171,6 +172,7 @@ class RetrievalPipeline:
         return (
             metadata.get("source_file") in self.allowed_source_files
             or metadata.get("source") in self.allowed_source_files
+            or metadata.get("doc_id") in self.allowed_source_files
         )
 
     def neighbor_contexts(self, docs: List[Document], window: int) -> List[dict]:

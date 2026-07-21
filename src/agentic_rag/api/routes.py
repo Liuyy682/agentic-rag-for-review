@@ -54,14 +54,20 @@ async def upload_documents(
     rag_app = get_rag_app()
     doc_manager = rag_app.document_manager
 
-    # Save uploaded files to a temp directory
+    # Keep only a task-scoped local copy; durable storage is handled by MinIO.
     tmpdir = Path(tempfile.mkdtemp(prefix="rag_upload_"))
     saved_paths = []
-    for f in files:
+    for index, f in enumerate(files):
         safe_name = Path(f.filename or "upload").name
-        dest = tmpdir / safe_name
-        content = await f.read()
-        dest.write_bytes(content)
+        dest = tmpdir / str(index) / safe_name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with dest.open("wb") as output:
+            while True:
+                chunk = await f.read(1024 * 1024)
+                if not chunk:
+                    break
+                output.write(chunk)
+        await f.close()
         saved_paths.append(str(dest))
 
     task_id = task_store.create()

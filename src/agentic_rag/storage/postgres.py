@@ -68,6 +68,51 @@ def ensure_schema() -> None:
                 cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
                 cur.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS rag_documents (
+                        document_id UUID PRIMARY KEY,
+                        original_file VARCHAR(500) NOT NULL,
+                        source_file VARCHAR(500) NOT NULL,
+                        original_extension VARCHAR(50),
+                        status VARCHAR(50) NOT NULL,
+                        raw_file_hash VARCHAR(128),
+                        markdown_hash VARCHAR(128),
+                        raw_object_key TEXT NOT NULL,
+                        markdown_object_key TEXT,
+                        image_object_keys JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        parent_count INTEGER NOT NULL DEFAULT 0,
+                        child_count INTEGER NOT NULL DEFAULT 0,
+                        index_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+                        last_result JSONB NOT NULL DEFAULT '{}'::jsonb,
+                        last_error TEXT,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS courses (
+                        course_id VARCHAR(255) PRIMARY KEY,
+                        name VARCHAR(500) NOT NULL,
+                        summary TEXT NOT NULL DEFAULT '',
+                        sections JSONB NOT NULL DEFAULT '[]'::jsonb,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    )
+                    """
+                )
+                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_courses_name_ci ON courses (lower(name))")
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS course_documents (
+                        course_id VARCHAR(255) NOT NULL REFERENCES courses(course_id) ON DELETE CASCADE,
+                        document_id UUID NOT NULL REFERENCES rag_documents(document_id) ON DELETE CASCADE,
+                        PRIMARY KEY (course_id, document_id)
+                    )
+                    """
+                )
+                cur.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS parent_chunks (
                         id SERIAL PRIMARY KEY,
                         parent_id VARCHAR(255) UNIQUE NOT NULL,
