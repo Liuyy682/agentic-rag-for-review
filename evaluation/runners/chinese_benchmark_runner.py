@@ -21,7 +21,7 @@ from agentic_rag.core.rag_system import RAGSystem
 from evaluation.chinese_benchmarks import (
     BenchmarkDocument,
     BenchmarkQuestion,
-    load_crud_benchmark,
+    load_cmedqa_benchmark,
     load_t2_benchmark,
 )
 from evaluation.io import config_snapshot, make_run_id, write_jsonl, write_metrics_csv
@@ -104,7 +104,6 @@ def run_chinese_benchmark(
     distractor_docs: int,
     top_k: int,
     output_dir: str,
-    crud_root: str | None = None,
     skip_ragas: bool = False,
     answer_mode: str | None = None,
     run_label: str | None = None,
@@ -137,7 +136,6 @@ def run_chinese_benchmark(
             distractor_docs=distractor_docs,
             top_k=top_k,
             output_dir=output_dir,
-            crud_root=crud_root,
             skip_ragas=skip_ragas,
             answer_mode=answer_mode,
             run_label=run_label,
@@ -152,7 +150,6 @@ def _run_chinese_benchmark(
     distractor_docs: int,
     top_k: int,
     output_dir: str,
-    crud_root: str | None,
     skip_ragas: bool,
     answer_mode: str | None,
     run_label: str | None,
@@ -176,14 +173,14 @@ def _run_chinese_benchmark(
         dataset_version = "C-MTEB/T2Retrieval:dev"
         dataset_source = "C-MTEB/T2Retrieval + C-MTEB/T2Retrieval-qrels"
         evaluation_type = "t2_project_ingestion_retrieval_eval"
-    elif dataset == "crud_rag":
-        if not crud_root:
-            raise ValueError("--crud-root is required for CRUD-RAG evaluation")
+    elif dataset == "cmedqa_retrieval":
         resolved_answer_mode = answer_mode or "agent"
-        questions, documents = load_crud_benchmark(crud_root, limit, offset, distractor_docs)
-        dataset_version = "IAAR-Shanghai/CRUD_RAG:quest_answer"
-        dataset_source = str(Path(crud_root).resolve())
-        evaluation_type = "crud_rag_project_ingestion_end_to_end_eval"
+        questions, documents = load_cmedqa_benchmark(limit, offset, distractor_docs)
+        dataset_version = "C-MTEB/CmedqaRetrieval:dev"
+        dataset_source = "C-MTEB/CmedqaRetrieval + C-MTEB/CmedqaRetrieval-qrels"
+        evaluation_type = "cmedqa_project_ingestion_end_to_end_eval"
+    elif dataset == "crud_rag":
+        raise ValueError("CRUD-RAG is no longer supported for retrieval/RAGAS because it lacks reliable query-to-corpus qrels; use cmedqa_retrieval.")
     else:
         raise ValueError(f"Unsupported Chinese benchmark: {dataset}")
 
@@ -213,7 +210,7 @@ def _run_chinese_benchmark(
     )
     answer_generator: Any = None
     resolved_model: str | None = None
-    if dataset == "crud_rag" and resolved_answer_mode != "reference":
+    if dataset == "cmedqa_retrieval" and resolved_answer_mode != "reference":
         resolved_model = resolve_answer_model(None)
         answer_generator = (
             _AgentGraphAnswerGenerator(rag_system.vector_db, rag_system.parent_store, resolved_model)
@@ -273,7 +270,7 @@ def _run_chinese_benchmark(
         )
         per_question.append(question_metrics)
 
-        if dataset == "crud_rag":
+        if dataset == "cmedqa_retrieval":
             try:
                 generation_started_at = time.perf_counter()
                 answer, answer_contexts, answer_diagnostics = generate_answer(
@@ -291,7 +288,7 @@ def _run_chinese_benchmark(
                 runtime_warnings.append(
                     make_warning(
                         "answer_generation_failed",
-                        "Answer generation failed for a CRUD-RAG question.",
+                        "Answer generation failed for a CmedQA question.",
                         severity="error",
                         question_id=question.question_id,
                         details={"error_type": type(exc).__name__, "error": str(exc)},
@@ -364,8 +361,9 @@ def _run_chinese_benchmark(
             "answer_mode": resolved_answer_mode,
             "answer_model": resolved_model,
             "answer_temperature": config.LLM_TEMPERATURE,
-            "ragas_enabled": dataset == "crud_rag" and not skip_ragas,
-            "ragas_judge_model": resolve_judge_model() if dataset == "crud_rag" and not skip_ragas else None,
+            "ragas_enabled": dataset == "cmedqa_retrieval" and not skip_ragas,
+            "ragas_judge_model": resolve_judge_model() if dataset == "cmedqa_retrieval" and not skip_ragas else None,
+            "reference_source": "gold_corpus_passage" if dataset == "cmedqa_retrieval" else None,
             "eval_database_isolated": True,
             "eval_database": redact_database_url(eval_database_url),
             "reranker_enabled": config.RERANKER_ENABLED,
@@ -406,7 +404,7 @@ def _run_chinese_benchmark(
 
     ragas_metrics: dict[str, float] | None = None
     ragas_by_group: dict[str, dict[str, float]] = {}
-    if dataset == "crud_rag" and not skip_ragas:
+    if dataset == "cmedqa_retrieval" and not skip_ragas:
         ragas_results, ragas_metrics = run_ragas_metrics(rag_outputs)
         ragas_error_cases = build_ragas_error_cases(ragas_results)
         ragas_by_group = grouped_ragas_metrics(ragas_results)
@@ -713,6 +711,7 @@ def write_report(
         f"- Answer mode: `{metadata['answer_mode']}`",
         f"- Retrieval only: `{metadata['retrieval_only']}`",
         f"- Run label: `{metadata['run_label']}`",
+        f"- Reference source: `{metadata.get('reference_source')}`",
         f"- Retrieval mode: `{metadata['retrieval_fusion_mode']}`",
         f"- Reranker enabled: `{metadata['reranker_enabled']}`",
         f"- Context policy/top-k: `{metadata['retrieval_context_policy']}` / `{metadata['context_top_k']}`",
@@ -731,14 +730,13 @@ def write_report(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run Chinese T2Retrieval or CRUD-RAG through project ingestion and retrieval.")
-    parser.add_argument("--dataset", choices=("t2_retrieval", "crud_rag"), required=True)
+    parser = argparse.ArgumentParser(description="Run Chinese T2Retrieval or CmedQA through project ingestion and retrieval.")
+    parser.add_argument("--dataset", choices=("t2_retrieval", "cmedqa_retrieval"), required=True)
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--distractor-docs", type=int, default=120, help="Use 0 for the complete corpus.")
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--output-dir", default=str(Path(config.EVALUATION_REPORTS_DIR) / "chinese_benchmarks"))
-    parser.add_argument("--crud-root")
     parser.add_argument("--skip-ragas", action="store_true")
     parser.add_argument("--answer-mode", choices=("agent", "direct", "reference"), default=None)
     parser.add_argument("--run-label")
@@ -756,7 +754,6 @@ def main() -> None:
         distractor_docs=args.distractor_docs,
         top_k=args.top_k,
         output_dir=args.output_dir,
-        crud_root=args.crud_root,
         skip_ragas=args.skip_ragas,
         answer_mode=args.answer_mode,
         run_label=args.run_label,

@@ -29,6 +29,7 @@ COMPATIBILITY_FIELDS = (
     "answer_model",
     "answer_temperature",
     "ragas_judge_model",
+    "reference_source",
 )
 RAGAS_METRICS = ("faithfulness", "context_precision", "context_recall")
 

@@ -490,9 +490,11 @@ def read_hf_parquet_records(repo_id: str, parquet_name_prefix: str) -> list[dict
 
 def cached_hf_parquet_paths(repo_id: str, parquet_name_prefix: str) -> list[Path]:
     cache_dir = Path(getattr(config, "HF_CACHE_DIR", ".cache/huggingface"))
-    repo_dir = cache_dir / f"datasets--{repo_id.replace('/', '--')}"
+    repo_name = f"datasets--{repo_id.replace('/', '--')}"
+    repo_dirs = (cache_dir / repo_name, cache_dir / "hub" / repo_name)
     return sorted(
         path
+        for repo_dir in repo_dirs
         for path in repo_dir.glob("snapshots/*/**/*.parquet")
         if path.name.startswith(parquet_name_prefix)
     )

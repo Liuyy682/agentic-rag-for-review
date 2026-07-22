@@ -14,38 +14,38 @@ from evaluation.runners.chinese_benchmark_compare import percentile, read_json, 
 
 def select_final_candidate(
     t2_comparisons: dict[str, str | Path],
-    crud_comparisons: dict[str, str | Path],
+    cmedqa_comparisons: dict[str, str | Path],
     output_dir: str | Path,
     bootstrap_samples: int = 10_000,
     seed: int = 42,
 ) -> dict[str, Any]:
-    labels = sorted(set(t2_comparisons) & set(crud_comparisons))
+    labels = sorted(set(t2_comparisons) & set(cmedqa_comparisons))
     if not labels:
-        raise ValueError("At least one candidate label must have both T2 and CRUD comparisons")
+        raise ValueError("At least one candidate label must have both T2 and CmedQA comparisons")
     candidates = []
     baseline_runs: dict[str, str] = {}
     for index, label in enumerate(labels):
         t2 = read_json(Path(t2_comparisons[label]))
-        crud = read_json(Path(crud_comparisons[label]))
-        if t2.get("dataset") != "t2_retrieval" or crud.get("dataset") != "crud_rag":
-            raise ValueError(f"Candidate {label} must pair a T2 comparison with a CRUD comparison")
-        if t2.get("candidate_label") != label or crud.get("candidate_label") != label:
+        cmedqa = read_json(Path(cmedqa_comparisons[label]))
+        if t2.get("dataset") != "t2_retrieval" or cmedqa.get("dataset") != "cmedqa_retrieval":
+            raise ValueError(f"Candidate {label} must pair a T2 comparison with a CmedQA comparison")
+        if t2.get("candidate_label") != label or cmedqa.get("candidate_label") != label:
             raise ValueError(f"Comparison candidate labels do not match {label}")
-        for dataset, summary in (("t2", t2), ("crud", crud)):
+        for dataset, summary in (("t2", t2), ("cmedqa", cmedqa)):
             baseline_run = str(Path(summary["baseline_run"]).resolve())
             if dataset in baseline_runs and baseline_runs[dataset] != baseline_run:
                 raise ValueError(f"All {dataset} candidates must use the same baseline run")
             baseline_runs[dataset] = baseline_run
         t2_metric = t2["retrieval"][t2["primary_metric"]]
-        crud_metric = crud["retrieval"][crud["primary_metric"]]
-        combined_baseline = (t2_metric["baseline"] + crud_metric["baseline"]) / 2.0
-        combined_candidate = (t2_metric["candidate"] + crud_metric["candidate"]) / 2.0
-        lower, upper = combined_bootstrap_ci(t2, crud, bootstrap_samples, seed + index)
-        ineligibility_reasons = crud_group_regressions(crud)
+        cmedqa_metric = cmedqa["retrieval"][cmedqa["primary_metric"]]
+        combined_baseline = (t2_metric["baseline"] + cmedqa_metric["baseline"]) / 2.0
+        combined_candidate = (t2_metric["candidate"] + cmedqa_metric["candidate"]) / 2.0
+        lower, upper = combined_bootstrap_ci(t2, cmedqa, bootstrap_samples, seed + index)
+        ineligibility_reasons = []
         if t2_metric["absolute_delta"] < -0.01:
             ineligibility_reasons.append("T2 primary metric regressed by more than 0.01")
-        if crud_metric["absolute_delta"] < -0.01:
-            ineligibility_reasons.append("CRUD primary metric regressed by more than 0.01")
+        if cmedqa_metric["absolute_delta"] < -0.01:
+            ineligibility_reasons.append("CmedQA primary metric regressed by more than 0.01")
         eligible = not ineligibility_reasons
         candidates.append(
             {
@@ -53,14 +53,14 @@ def select_final_candidate(
                 "eligible": eligible,
                 "ineligibility_reasons": ineligibility_reasons,
                 "t2_ndcg": t2_metric["candidate"],
-                "crud_recall": crud_metric["candidate"],
+                "cmedqa_recall": cmedqa_metric["candidate"],
                 "combined_baseline": combined_baseline,
                 "combined_candidate": combined_candidate,
                 "combined_delta": combined_candidate - combined_baseline,
                 "combined_ci95_lower": lower,
                 "combined_ci95_upper": upper,
-                "context_chars": average_candidate_metric(t2, crud, "context_chars"),
-                "retrieval_latency_ms": average_candidate_metric(t2, crud, "retrieval_latency_ms"),
+                "context_chars": average_candidate_metric(t2, cmedqa, "context_chars"),
+                "retrieval_latency_ms": average_candidate_metric(t2, cmedqa, "retrieval_latency_ms"),
             }
         )
     eligible = [row for row in candidates if row["eligible"]]
@@ -90,20 +90,20 @@ def select_final_candidate(
 
 def combined_bootstrap_ci(
     t2_summary: dict[str, Any],
-    crud_summary: dict[str, Any],
+    cmedqa_summary: dict[str, Any],
     samples: int,
     seed: int,
 ) -> tuple[float, float]:
     if samples <= 0:
         raise ValueError("bootstrap_samples must be positive")
     t2_deltas = primary_deltas(t2_summary)
-    crud_deltas = primary_deltas(crud_summary)
+    cmedqa_deltas = primary_deltas(cmedqa_summary)
     rng = random.Random(seed)
     values = []
     for _ in range(samples):
         t2_mean = sum(t2_deltas[rng.randrange(len(t2_deltas))] for _ in t2_deltas) / len(t2_deltas)
-        crud_mean = sum(crud_deltas[rng.randrange(len(crud_deltas))] for _ in crud_deltas) / len(crud_deltas)
-        values.append((t2_mean + crud_mean) / 2.0)
+        cmedqa_mean = sum(cmedqa_deltas[rng.randrange(len(cmedqa_deltas))] for _ in cmedqa_deltas) / len(cmedqa_deltas)
+        values.append((t2_mean + cmedqa_mean) / 2.0)
     values.sort()
     return percentile(values, 0.025), percentile(values, 0.975)
 
@@ -117,26 +117,14 @@ def primary_deltas(summary: dict[str, Any]) -> list[float]:
     return [float(right[metric]) - float(left[metric]) for left, right in zip(baseline, candidate)]
 
 
-def crud_group_regressions(summary: dict[str, Any]) -> list[str]:
-    reasons = []
-    metric = summary["primary_metric"]
-    for group in ("questanswer_2docs", "questanswer_3docs"):
-        row = (summary.get("retrieval_by_group", {}).get(group) or {}).get(metric)
-        if not row:
-            reasons.append(f"{group} {metric} is missing")
-        elif row["absolute_delta"] < -0.02:
-            reasons.append(f"{group} {metric} regressed by more than 0.02")
-    return reasons
-
-
-def average_candidate_metric(t2: dict[str, Any], crud: dict[str, Any], metric: str) -> float:
+def average_candidate_metric(t2: dict[str, Any], cmedqa: dict[str, Any], metric: str) -> float:
     values = []
-    for summary in (t2, crud):
+    for summary in (t2, cmedqa):
         row = summary.get("retrieval", {}).get(metric)
         if row:
             values.append(float(row["candidate"]))
     if len(values) != 2:
-        raise ValueError(f"Both T2 and CRUD comparisons must contain {metric}")
+        raise ValueError(f"Both T2 and CmedQA comparisons must contain {metric}")
     return sum(values) / len(values)
 
 
@@ -180,16 +168,16 @@ def parse_comparisons(values: Sequence[str]) -> dict[str, Path]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Select the final Chinese RAG candidate across T2 and CRUD.")
+    parser = argparse.ArgumentParser(description="Select the final Chinese RAG candidate across T2 and CmedQA.")
     parser.add_argument("--t2-comparison", action="append", default=[], metavar="LABEL=PATH")
-    parser.add_argument("--crud-comparison", action="append", default=[], metavar="LABEL=PATH")
+    parser.add_argument("--cmedqa-comparison", action="append", default=[], metavar="LABEL=PATH")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--bootstrap-samples", type=int, default=10_000)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
     result = select_final_candidate(
         parse_comparisons(args.t2_comparison),
-        parse_comparisons(args.crud_comparison),
+        parse_comparisons(args.cmedqa_comparison),
         args.output_dir,
         bootstrap_samples=args.bootstrap_samples,
         seed=args.seed,
