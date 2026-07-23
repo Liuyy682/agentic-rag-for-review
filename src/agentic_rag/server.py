@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from agentic_rag.api.deps import close_rag_app
 from agentic_rag.api.routes import router
 from agentic_rag.api.tasks import task_store
 from agentic_rag.security.auth import validate_auth_config
@@ -18,8 +19,11 @@ STATIC_DIR = Path(__file__).parent / "web" / "static"
 async def lifespan(app: FastAPI):
     validate_auth_config()
     cleanup_task = asyncio.create_task(task_store._cleanup_loop())
-    yield
-    cleanup_task.cancel()
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        close_rag_app()
 
 
 app = FastAPI(title="Agentic RAG", lifespan=lifespan)

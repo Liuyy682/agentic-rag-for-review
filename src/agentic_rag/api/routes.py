@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from agentic_rag.api.deps import get_rag_app
 from agentic_rag.api.stream import stream_chat
 from agentic_rag.api.tasks import task_store
+from agentic_rag.chat.redis_memory import MemoryBackendUnavailable
 from agentic_rag.security.auth import Principal, get_principal
 
 router = APIRouter()
@@ -233,6 +234,12 @@ async def chat(
 ):
     rag_app = get_rag_app()
     chat_interface = rag_app.chat_interface
+    ensure_memory_backend = getattr(chat_interface.session_memory, "ensure_available", None)
+    if ensure_memory_backend:
+        try:
+            await asyncio.to_thread(ensure_memory_backend)
+        except MemoryBackendUnavailable as exc:
+            raise HTTPException(status_code=503, detail="Chat memory is temporarily unavailable") from exc
     session = await asyncio.to_thread(
         chat_interface.session_memory.get_session,
         body.session_id,

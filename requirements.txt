@@ -106,6 +106,7 @@ pyzmq==27.1.0
 regex==2026.4.4
 requests==2.33.1
 requests-toolbelt==1.0.0
+redis>=5.2.1,<6.0.0
 rich==15.0.0
 safehttpx==0.1.7
 safetensors==0.7.0

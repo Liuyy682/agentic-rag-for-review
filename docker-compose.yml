@@ -8,6 +8,7 @@ services:
         required: false
     environment:
       DATABASE_URL: postgresql://agentic_rag:dev_only@postgres:5432/agentic_rag
+      REDIS_URL: redis://redis:6379/0
       HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
       DENSE_LOCAL_FILES_ONLY: ${DENSE_LOCAL_FILES_ONLY:-false}
       RERANKER_LOCAL_FILES_ONLY: ${RERANKER_LOCAL_FILES_ONLY:-false}
@@ -18,6 +19,8 @@ services:
       - hf_cache:/app/.cache/huggingface
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:7860/"]
@@ -42,6 +45,17 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  redis:
+    image: redis:8
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
 
 volumes:
   pgdata:

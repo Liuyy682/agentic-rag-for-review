@@ -3,11 +3,14 @@ import re
 import threading
 from langchain_core.messages import HumanMessage, AIMessageChunk, ToolMessage, SystemMessage
 
+from agentic_rag import config
+
+from .redis_memory import MemoryBackendUnavailable
 from .session_memory import SessionMemoryStore
 
 SILENT_NODES = {"recognize_intent", "rewrite_query", "plan_rag_tasks"}
 SYSTEM_NODES = {"summarize_history", "recognize_intent", "rewrite_query", "plan_rag_tasks"}
-MEMORY_WINDOW_SIZE = 5
+MEMORY_WINDOW_SIZE = config.MEMORY_RECENT_TURNS
 
 SYSTEM_NODE_CONFIG = {
     "recognize_intent":   {"title": "🔍 Intent Recognition"},
@@ -149,12 +152,17 @@ class ChatInterface:
 
     def _load_conversation_memory(self, session_id, owner=None):
         try:
+            get_memory_context = getattr(self.session_memory, "get_memory_context", None)
+            if get_memory_context:
+                return get_memory_context(session_id, **self._owner_kwargs(owner))
             recent_turns = self.session_memory.get_recent_turns(
                 session_id,
                 limit=MEMORY_WINDOW_SIZE,
                 **self._owner_kwargs(owner),
             )
             return self.session_memory.format_recent_turns(recent_turns)
+        except MemoryBackendUnavailable:
+            raise
         except Exception as e:
             print(f"Warning: Could not load session memory for {session_id}: {e}")
             return ""
@@ -168,6 +176,8 @@ class ChatInterface:
                 course_name=course_name,
                 **self._owner_kwargs(owner),
             )
+        except MemoryBackendUnavailable:
+            raise
         except Exception as e:
             print(f"Warning: Could not save session memory for {session_id}: {e}")
 

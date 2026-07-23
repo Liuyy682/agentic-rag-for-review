@@ -1,5 +1,8 @@
+from agentic_rag import config
 from agentic_rag.chat.chat_interface import ChatInterface
+from agentic_rag.chat.hot_session_memory import HotSessionMemoryStore
 from agentic_rag.chat.pg_session_memory import PgSessionMemoryStore
+from agentic_rag.chat.redis_memory import RedisSessionMemoryCache
 from agentic_rag.ingestion.cloud_document_manager import CloudDocumentManager
 from agentic_rag.core.rag_system import RAGSystem
 from agentic_rag.storage.metadata_repository import PgCourseStructureStore, PgDocumentRepository
@@ -30,6 +33,15 @@ class RagApplication:
             chat_interface=ChatInterface(
                 rag_system,
                 course_store=course_store,
-                session_memory=PgSessionMemoryStore(),
+                session_memory=HotSessionMemoryStore(
+                    PgSessionMemoryStore(),
+                    RedisSessionMemoryCache.from_config(),
+                    recent_turns=config.MEMORY_RECENT_TURNS,
+                ),
             ),
         )
+
+    def close(self) -> None:
+        close = getattr(self.chat_interface.session_memory, "close", None)
+        if close:
+            close()

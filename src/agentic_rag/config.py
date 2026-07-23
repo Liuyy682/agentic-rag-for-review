@@ -61,6 +61,13 @@ OIDC_ALGORITHMS = tuple(
 DEV_TENANT_ID = os.environ.get("DEV_TENANT_ID", "local-tenant").strip()
 DEV_USER_ID = os.environ.get("DEV_USER_ID", "local-user").strip()
 
+# --- Redis hot conversation memory ---
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0").strip()
+REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS = _env_int("REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS", 2)
+REDIS_SOCKET_TIMEOUT_SECONDS = _env_int("REDIS_SOCKET_TIMEOUT_SECONDS", 2)
+MEMORY_TTL_SECONDS = _env_int("MEMORY_TTL_SECONDS", 7 * 24 * 60 * 60)
+MEMORY_RECENT_TURNS = _env_int("MEMORY_RECENT_TURNS", 6)
+
 # --- Database Configuration ---
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",

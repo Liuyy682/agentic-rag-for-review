@@ -10,7 +10,7 @@
 - 默认检索链路为稠密向量检索 + PostgreSQL 全文检索 + RRF 融合 + cross-encoder 重排。
 - 根据问题类型和命中情况选择子块、邻近子块或父块作为回答上下文。
 - LangGraph 编排会话摘要、意图识别、查询改写、澄清、任务规划、检索、答案评估、降级回答和聚合。
-- 支持课程范围问答、课程/章节重命名，以及按 OIDC 租户和用户隔离的 PostgreSQL 会话记忆。
+- 支持课程范围问答、课程/章节重命名，以及按 OIDC 租户和用户隔离的 PostgreSQL 会话归档与 Redis 热记忆。
 - `evaluation` 提供 RAGBench、RAGAS、本地检索评测和分块消融脚本。
 
 ## 架构
@@ -64,6 +64,7 @@ Browser static UI
 - `sentence-transformers` cross-encoder 重排
 - MarkItDown、PyMuPDF 等文档转换工具
 - PostgreSQL 会话记忆 + OIDC JWT 身份隔离
+- Redis 活跃会话缓存（默认 7 天滑动 TTL，未命中从 PostgreSQL 回源）
 - 可选 Langfuse 链路追踪
 - 可选 PaddleOCR 图片文字提取（IMAGE_ANALYSIS_ENGINE=paddleocr）
 
@@ -221,6 +222,7 @@ OCR/VLM 分析结果会以 `OCR:` / `RAG_SUMMARY:` / `KEY_TERMS:` 三字段格�
 会话与聊天接口需要 Bearer JWT。仅本地开发可在 `.env` 中显式设置
 `AUTH_MODE=dev`、`DEV_TENANT_ID` 和 `DEV_USER_ID`；生产环境使用默认的
 `AUTH_MODE=oidc` 并配置 issuer、audience、JWKS URL 及身份 Claim。
+聊天入口会先检查 Redis 热记忆；Redis 暂不可用时返回 503，而不会退回到进程内会话状态。
 
 - `POST /api/documents/upload`：上传文档并创建后台摄入任务。
 - `GET /api/documents/tasks/{task_id}`：查询摄入进度和结果。
@@ -245,6 +247,7 @@ OCR/VLM 分析结果会以 `OCR:` / `RAG_SUMMARY:` / `KEY_TERMS:` 三字段格�
 - `runtime/ingestion_logs`：文档摄入阶段日志。
 - `runtime/index_state`：索引 manifest 和课程结构。
 - PostgreSQL `chat_sessions` / `chat_turns`：会话元数据与完整问答历史。
+- Redis：活跃会话的滚动摘要和最近原始轮次缓存，默认 7 天未访问自动过期。
 - `runtime/evaluation_reports`：评测报告。
 
 ## 检索行为

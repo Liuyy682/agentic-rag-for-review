@@ -12,7 +12,7 @@ Current capabilities:
 - Retrieve with dense vector search, PostgreSQL full-text search, RRF fusion, and optional cross-encoder reranking.
 - Select child, neighboring child, or full parent context according to query shape and retrieval hits.
 - Use LangGraph to orchestrate history summarization, intent recognition, query rewriting, clarification, task planning, retrieval, answer evaluation, fallback answers, and aggregation.
-- Scope chat to a course, manage courses/sections, and persist tenant/user-isolated session memory in PostgreSQL.
+- Scope chat to a course, manage courses/sections, archive tenant/user-isolated history in PostgreSQL, and cache active session memory in Redis.
 - Run RAGBench, RAGAS, local retrieval, and chunking ablation evaluation scripts under `evaluation`.
 
 ## Quick Start
@@ -223,6 +223,7 @@ Sessions:
 Session and chat routes require a Bearer JWT. Local development may explicitly use
 `AUTH_MODE=dev` with `DEV_TENANT_ID` and `DEV_USER_ID`; production uses the default
 `AUTH_MODE=oidc` with issuer, audience, JWKS URL, and identity-claim settings.
+The chat endpoint checks Redis before opening SSE and returns 503 when hot memory is unavailable; it does not fall back to process-local session state.
 
 Chat:
 
@@ -230,6 +231,7 @@ Chat:
 - `POST /api/chat/clear`
 
 Upload tasks are tracked in memory and expire after the task cleanup window. Chat turns and session metadata are persisted in PostgreSQL `chat_sessions` and `chat_turns` tables.
+Redis caches each active session's rolling summary and recent turns with a seven-day sliding TTL; cache misses rehydrate from PostgreSQL.
 
 ## Runtime Data
 
