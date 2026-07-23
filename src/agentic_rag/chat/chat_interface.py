@@ -143,29 +143,41 @@ class ChatInterface:
             response_messages.append(make_message(""))
         response_messages[-1]["content"] += chunk.content
 
-    def _load_conversation_memory(self, session_id):
+    @staticmethod
+    def _owner_kwargs(owner):
+        return {"owner": owner} if owner is not None else {}
+
+    def _load_conversation_memory(self, session_id, owner=None):
         try:
-            recent_turns = self.session_memory.get_recent_turns(session_id, limit=MEMORY_WINDOW_SIZE)
+            recent_turns = self.session_memory.get_recent_turns(
+                session_id,
+                limit=MEMORY_WINDOW_SIZE,
+                **self._owner_kwargs(owner),
+            )
             return self.session_memory.format_recent_turns(recent_turns)
         except Exception as e:
             print(f"Warning: Could not load session memory for {session_id}: {e}")
             return ""
 
-    def _save_turn(self, session_id, user_original, assistant_final, course_name=None):
+    def _save_turn(self, session_id, user_original, assistant_final, course_name=None, owner=None):
         try:
             self.session_memory.append_turn(
                 session_id=session_id,
                 user_original=user_original,
                 assistant_final=assistant_final,
                 course_name=course_name,
+                **self._owner_kwargs(owner),
             )
         except Exception as e:
             print(f"Warning: Could not save session memory for {session_id}: {e}")
 
-    def _generate_title_async(self, session_id: str):
+    def _generate_title_async(self, session_id: str, owner=None):
         """Generate a concise session title using the LLM in a daemon thread."""
         try:
-            turns = self.session_memory.get_session_turns(session_id)
+            turns = self.session_memory.get_session_turns(
+                session_id,
+                **self._owner_kwargs(owner),
+            )
             if not turns:
                 return
 
@@ -198,13 +210,20 @@ class ChatInterface:
                 title = " ".join(words[:8])
 
             if title:
-                self.session_memory.update_session_title(session_id, title)
+                self.session_memory.update_session_title(
+                    session_id,
+                    title,
+                    **self._owner_kwargs(owner),
+                )
         except Exception as e:
             print(f"Warning: Title generation failed for session {session_id}: {e}")
 
-    def _delete_session_memory(self, session_id):
+    def _delete_session_memory(self, session_id, owner=None):
         try:
-            self.session_memory.delete_session(session_id)
+            self.session_memory.delete_session(
+                session_id,
+                **self._owner_kwargs(owner),
+            )
         except Exception as e:
             print(f"Warning: Could not delete session memory for {session_id}: {e}")
 
@@ -220,7 +239,7 @@ class ChatInterface:
                 return content
         return ""
 
-    def chat(self, message, history, course_name=None, session_id=None):
+    def chat(self, message, history, course_name=None, session_id=None, owner=None):
         """Generator that streams chat message dicts. Handles both initial
         messages and clarification-resume when the graph is interrupted."""
         if not self.rag_system.agent_graph:
@@ -248,7 +267,7 @@ class ChatInterface:
                 )
                 stream_input = None
             else:
-                memory = self._load_conversation_memory(session_id)
+                memory = self._load_conversation_memory(session_id, owner=owner)
                 stream_input = {
                     "messages": [HumanMessage(content=user_message)],
                     "conversation_memory": memory,
@@ -283,19 +302,25 @@ class ChatInterface:
 
                 final_response = self._extract_final_response(response_messages)
                 if final_response:
-                    self._save_turn(session_id, user_message, final_response, course_name=course_name)
+                    self._save_turn(
+                        session_id,
+                        user_message,
+                        final_response,
+                        course_name=course_name,
+                        owner=owner,
+                    )
 
                 threading.Thread(
                     target=self._generate_title_async,
-                    args=(session_id,),
+                    args=(session_id, owner),
                     daemon=True,
                 ).start()
 
             except Exception as e:
                 yield f"❌ Error: {str(e)}"
 
-    def clear_session(self, session_id=None):
+    def clear_session(self, session_id=None, owner=None):
         sid = session_id or self.rag_system.thread_id
-        self._delete_session_memory(sid)
+        self._delete_session_memory(sid, owner=owner)
         self.rag_system.reset_thread(sid)
         self.rag_system.observability.flush()

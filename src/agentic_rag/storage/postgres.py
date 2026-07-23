@@ -101,6 +101,46 @@ def ensure_schema() -> None:
                     )
                     """
                 )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS chat_sessions (
+                        memory_id UUID PRIMARY KEY,
+                        tenant_id VARCHAR(255) NOT NULL,
+                        user_id VARCHAR(255) NOT NULL,
+                        course_name VARCHAR(500) NOT NULL DEFAULT '',
+                        title TEXT,
+                        rolling_summary TEXT NOT NULL DEFAULT '',
+                        summarized_through_turn INTEGER NOT NULL DEFAULT 0,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_chat_sessions_owner_course
+                    ON chat_sessions (tenant_id, user_id, course_name, updated_at DESC)
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS chat_turns (
+                        id BIGSERIAL PRIMARY KEY,
+                        memory_id UUID NOT NULL REFERENCES chat_sessions(memory_id) ON DELETE CASCADE,
+                        turn_index INTEGER NOT NULL,
+                        user_original TEXT NOT NULL,
+                        assistant_final TEXT NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        UNIQUE (memory_id, turn_index)
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_chat_turns_memory_created
+                    ON chat_turns (memory_id, created_at)
+                    """
+                )
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_courses_name_ci ON courses (lower(name))")
                 cur.execute(
                     """

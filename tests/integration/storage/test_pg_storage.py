@@ -60,7 +60,7 @@ def test_ensure_schema_creates_runtime_tables_and_indexes(pg_storage):
             cur.execute("SELECT indexname FROM pg_indexes WHERE schemaname = 'public'")
             indexes = {row[0] for row in cur.fetchall()}
 
-    assert {"parent_chunks", "child_chunks"} <= tables
+    assert {"parent_chunks", "child_chunks", "chat_sessions", "chat_turns"} <= tables
     assert {"idx_child_chunks_embedding", "idx_child_chunks_tsv", "idx_child_chunks_parent"} <= indexes
 
 

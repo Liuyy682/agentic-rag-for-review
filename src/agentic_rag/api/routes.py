@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from agentic_rag.api.deps import get_rag_app
 from agentic_rag.api.stream import stream_chat
 from agentic_rag.api.tasks import task_store
+from agentic_rag.security.auth import Principal, get_principal
 
 router = APIRouter()
 
@@ -173,44 +174,72 @@ async def rename_section(body: RenameSectionRequest):
 # ── Session endpoints ───────────────────────────────────────────────────────
 
 @router.get("/sessions")
-async def list_sessions(course_name: str = ""):
+async def list_sessions(
+    course_name: str = "",
+    principal: Principal = Depends(get_principal),
+):
     rag_app = get_rag_app()
     store = rag_app.chat_interface.session_memory
-    sessions = await asyncio.to_thread(store.list_sessions, course_name)
+    sessions = await asyncio.to_thread(store.list_sessions, course_name, owner=principal)
     return {"sessions": sessions}
 
 
 @router.post("/sessions")
-async def create_session(body: CreateSessionRequest):
+async def create_session(
+    body: CreateSessionRequest,
+    principal: Principal = Depends(get_principal),
+):
     rag_app = get_rag_app()
     store = rag_app.chat_interface.session_memory
-    session_id = await asyncio.to_thread(store.create_session, body.course_name)
+    session_id = await asyncio.to_thread(store.create_session, body.course_name, owner=principal)
     return {"session_id": session_id, "course_name": body.course_name}
 
 
 @router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str):
+async def delete_session(
+    session_id: str,
+    principal: Principal = Depends(get_principal),
+):
     rag_app = get_rag_app()
     store = rag_app.chat_interface.session_memory
-    await asyncio.to_thread(store.delete_session, session_id)
+    deleted = await asyncio.to_thread(store.delete_session, session_id, owner=principal)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found")
     rag_app.chat_interface.rag_system.reset_thread(session_id)
     return {"status": "ok"}
 
 
 @router.get("/sessions/{session_id}/turns")
-async def get_session_turns(session_id: str):
+async def get_session_turns(
+    session_id: str,
+    principal: Principal = Depends(get_principal),
+):
     rag_app = get_rag_app()
     store = rag_app.chat_interface.session_memory
-    turns = await asyncio.to_thread(store.get_session_turns, session_id)
+    session = await asyncio.to_thread(store.get_session, session_id, owner=principal)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    turns = await asyncio.to_thread(store.get_session_turns, session_id, owner=principal)
     return {"turns": turns}
 
 
 # ── Chat endpoints ───────────────────────────────────────────────────────────
 
 @router.post("/chat")
-async def chat(body: ChatRequest, request: Request):
+async def chat(
+    body: ChatRequest,
+    request: Request,
+    principal: Principal = Depends(get_principal),
+):
     rag_app = get_rag_app()
     chat_interface = rag_app.chat_interface
+    session = await asyncio.to_thread(
+        chat_interface.session_memory.get_session,
+        body.session_id,
+        owner=principal,
+    )
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
 
     async def event_generator():
         async for sse_str in stream_chat(
@@ -219,6 +248,7 @@ async def chat(body: ChatRequest, request: Request):
             history=body.history,
             course_name=body.course_name,
             session_id=body.session_id,
+            owner=principal,
         ):
             # Check for client disconnect
             if await request.is_disconnected():
@@ -237,9 +267,18 @@ async def chat(body: ChatRequest, request: Request):
 
 
 @router.post("/chat/clear")
-async def clear_chat(body: ClearChatRequest):
+async def clear_chat(
+    body: ClearChatRequest,
+    principal: Principal = Depends(get_principal),
+):
     rag_app = get_rag_app()
     chat_interface = rag_app.chat_interface
-    # Use the chat_interface's clear_session, but we need to set the session_id first
-    await asyncio.to_thread(chat_interface.clear_session, body.session_id)
+    session = await asyncio.to_thread(
+        chat_interface.session_memory.get_session,
+        body.session_id,
+        owner=principal,
+    )
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    await asyncio.to_thread(chat_interface.clear_session, body.session_id, owner=principal)
     return {"status": "ok"}

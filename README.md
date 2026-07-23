@@ -10,7 +10,7 @@
 - 默认检索链路为稠密向量检索 + PostgreSQL 全文检索 + RRF 融合 + cross-encoder 重排。
 - 根据问题类型和命中情况选择子块、邻近子块或父块作为回答上下文。
 - LangGraph 编排会话摘要、意图识别、查询改写、澄清、任务规划、检索、答案评估、降级回答和聚合。
-- 支持课程范围问答、课程/章节重命名、会话创建/删除和 SQLite 会话记忆。
+- 支持课程范围问答、课程/章节重命名，以及按 OIDC 租户和用户隔离的 PostgreSQL 会话记忆。
 - `evaluation` 提供 RAGBench、RAGAS、本地检索评测和分块消融脚本。
 
 ## 架构
@@ -63,7 +63,7 @@ Browser static UI
 - PostgreSQL 全文检索 + `jieba`
 - `sentence-transformers` cross-encoder 重排
 - MarkItDown、PyMuPDF 等文档转换工具
-- SQLite 会话记忆
+- PostgreSQL 会话记忆 + OIDC JWT 身份隔离
 - 可选 Langfuse 链路追踪
 - 可选 PaddleOCR 图片文字提取（IMAGE_ANALYSIS_ENGINE=paddleocr）
 
@@ -218,6 +218,10 @@ OCR/VLM 分析结果会以 `OCR:` / `RAG_SUMMARY:` / `KEY_TERMS:` 三字段格�
 
 当前前端使用这些内部 HTTP 接口；它们服务于本仓库 UI，不承诺作为稳定外部 API：
 
+会话与聊天接口需要 Bearer JWT。仅本地开发可在 `.env` 中显式设置
+`AUTH_MODE=dev`、`DEV_TENANT_ID` 和 `DEV_USER_ID`；生产环境使用默认的
+`AUTH_MODE=oidc` 并配置 issuer、audience、JWKS URL 及身份 Claim。
+
 - `POST /api/documents/upload`：上传文档并创建后台摄入任务。
 - `GET /api/documents/tasks/{task_id}`：查询摄入进度和结果。
 - `GET /api/documents/files`：列出知识库中的 Markdown 文件。
@@ -240,7 +244,7 @@ OCR/VLM 分析结果会以 `OCR:` / `RAG_SUMMARY:` / `KEY_TERMS:` 三字段格�
 - `runtime/markdown_cleaning_logs` / `runtime/markdown_cleaning_diffs`：清洗日志和差异。
 - `runtime/ingestion_logs`：文档摄入阶段日志。
 - `runtime/index_state`：索引 manifest 和课程结构。
-- `runtime/session_memory.sqlite3`：会话记忆。
+- PostgreSQL `chat_sessions` / `chat_turns`：会话元数据与完整问答历史。
 - `runtime/evaluation_reports`：评测报告。
 
 ## 检索行为

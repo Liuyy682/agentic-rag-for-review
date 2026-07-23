@@ -1,4 +1,5 @@
 from agentic_rag.chat.chat_interface import ChatInterface
+from agentic_rag.chat.pg_session_memory import PgSessionMemoryStore
 from agentic_rag.ingestion.cloud_document_manager import CloudDocumentManager
 from agentic_rag.core.rag_system import RAGSystem
 from agentic_rag.storage.metadata_repository import PgCourseStructureStore, PgDocumentRepository
@@ -26,5 +27,9 @@ class RagApplication:
                 repository=repository,
                 course_store=course_store,
             ),
-            chat_interface=ChatInterface(rag_system, course_store=course_store),
+            chat_interface=ChatInterface(
+                rag_system,
+                course_store=course_store,
+                session_memory=PgSessionMemoryStore(),
+            ),
         )

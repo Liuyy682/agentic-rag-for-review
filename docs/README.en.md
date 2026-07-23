@@ -12,7 +12,7 @@ Current capabilities:
 - Retrieve with dense vector search, PostgreSQL full-text search, RRF fusion, and optional cross-encoder reranking.
 - Select child, neighboring child, or full parent context according to query shape and retrieval hits.
 - Use LangGraph to orchestrate history summarization, intent recognition, query rewriting, clarification, task planning, retrieval, answer evaluation, fallback answers, and aggregation.
-- Scope chat to a course, manage courses/sections, and persist lightweight session memory in SQLite.
+- Scope chat to a course, manage courses/sections, and persist tenant/user-isolated session memory in PostgreSQL.
 - Run RAGBench, RAGAS, local retrieval, and chunking ablation evaluation scripts under `evaluation`.
 
 ## Quick Start
@@ -220,12 +220,16 @@ Sessions:
 - `DELETE /api/sessions/{session_id}`
 - `GET /api/sessions/{session_id}/turns`
 
+Session and chat routes require a Bearer JWT. Local development may explicitly use
+`AUTH_MODE=dev` with `DEV_TENANT_ID` and `DEV_USER_ID`; production uses the default
+`AUTH_MODE=oidc` with issuer, audience, JWKS URL, and identity-claim settings.
+
 Chat:
 
 - `POST /api/chat`: streams `text/event-stream` events.
 - `POST /api/chat/clear`
 
-Upload tasks are tracked in memory and expire after the task cleanup window. Chat turns and session metadata are persisted in `runtime/session_memory.sqlite3`.
+Upload tasks are tracked in memory and expire after the task cleanup window. Chat turns and session metadata are persisted in PostgreSQL `chat_sessions` and `chat_turns` tables.
 
 ## Runtime Data
 
@@ -237,7 +241,6 @@ Runtime output is written under `runtime/`:
 - `ingestion_logs`: per-document ingestion stage logs.
 - `index_state`: index manifest and course structure.
 - `document_images`: PDF image extraction output when enabled.
-- `session_memory.sqlite3`: chat session memory.
 - `evaluation_reports`: evaluation outputs.
 
 ## Evaluation

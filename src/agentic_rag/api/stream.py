@@ -18,6 +18,7 @@ async def stream_chat(
     history: list[dict],
     course_name: str | None,
     session_id: str,
+    owner=None,
 ) -> AsyncGenerator[str, None]:
     """Bridge the sync ChatInterface.chat() generator to async SSE StreamingResponse."""
     queue: asyncio.Queue = asyncio.Queue()
@@ -31,6 +32,7 @@ async def stream_chat(
                 history=history,
                 course_name=course_name,
                 session_id=session_id,
+                owner=owner,
             )
             for item in generator:
                 if cancel_event.is_set():

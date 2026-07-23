@@ -46,6 +46,21 @@ EVALUATION_REPORTS_DIR = os.path.join(_RUNTIME_DIR, "evaluation_reports")
 COURSE_STRUCTURE_PATH = os.path.join(INDEX_STATE_DIR, "course_structure.json")
 SESSION_MEMORY_PATH = os.path.join(_RUNTIME_DIR, "session_memory.sqlite3")
 
+# --- Authentication ---
+AUTH_MODE = os.environ.get("AUTH_MODE", "oidc").strip().lower()
+OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "").strip()
+OIDC_AUDIENCE = os.environ.get("OIDC_AUDIENCE", "").strip()
+OIDC_JWKS_URL = os.environ.get("OIDC_JWKS_URL", "").strip()
+OIDC_TENANT_CLAIM = os.environ.get("OIDC_TENANT_CLAIM", "tenant_id").strip()
+OIDC_USER_CLAIM = os.environ.get("OIDC_USER_CLAIM", "sub").strip()
+OIDC_ALGORITHMS = tuple(
+    item.strip()
+    for item in os.environ.get("OIDC_ALGORITHMS", "RS256").split(",")
+    if item.strip()
+)
+DEV_TENANT_ID = os.environ.get("DEV_TENANT_ID", "local-tenant").strip()
+DEV_USER_ID = os.environ.get("DEV_USER_ID", "local-user").strip()
+
 # --- Database Configuration ---
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
