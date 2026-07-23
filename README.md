@@ -227,6 +227,8 @@ LangGraph Checkpoint 同样存入 Redis 的浅层 Checkpoint，并使用同一�
 必须提供 RedisJSON 与 RediSearch。相同 `session_id` 的聊天和删除操作通过 Redis 分布式锁
 串行化，等待超过 `MEMORY_LOCK_WAIT_SECONDS`（默认 3 秒）返回 409；不同会话可并行。
 课程文档范围通过每次图调用的不可变配置传递，不再保存在共享进程字段中。
+当会话上下文超过 `MEMORY_CONTEXT_TOKEN_BUDGET`（默认 6000）时，系统会将早期、
+尚未摘要的轮次并入 PostgreSQL 滚动摘要，并保留至少最近 6 轮原文；摘要失败不会推进游标或影响当前问答归档。
 
 - `POST /api/documents/upload`：上传文档并创建后台摄入任务。
 - `GET /api/documents/tasks/{task_id}`：查询摄入进度和结果。

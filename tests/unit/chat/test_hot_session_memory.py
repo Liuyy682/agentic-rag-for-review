@@ -48,7 +48,11 @@ class FakeRedis:
 class FakeDurableStore:
     def __init__(self):
         self.sessions = {
-            "session-a": {"id": "session-a", "rolling_summary": "Earlier preference: concise answers."},
+            "session-a": {
+                "id": "session-a",
+                "rolling_summary": "Earlier preference: concise answers.",
+                "summarized_through_turn": 0,
+            },
         }
         self.turns = {
             "session-a": [
@@ -75,6 +79,17 @@ class FakeDurableStore:
 
     def delete_session(self, session_id, *, owner):
         return self.sessions.pop(session_id, None) is not None
+
+    def get_session_turns(self, session_id, *, owner):
+        return list(self.turns.get(session_id, []))
+
+    def update_rolling_summary(self, session_id, summary, summarized_through_turn, *, owner):
+        session = self.sessions[session_id]
+        if session["summarized_through_turn"] >= summarized_through_turn:
+            return False
+        session["rolling_summary"] = summary
+        session["summarized_through_turn"] = summarized_through_turn
+        return True
 
     @staticmethod
     def format_recent_turns(turns):
@@ -109,7 +124,7 @@ def test_hot_store_hydrates_postgres_on_cache_miss_then_serves_cache():
     assert "Earlier preference" in context
     assert "User: first" in context
     assert cached_context == context
-    assert durable.recent_calls == 1
+    assert durable.recent_calls == 0
     payload = json.loads(client.values["agentic-rag:memory:session-a:snapshot"])
     assert len(payload["turns"]) == 2
 
@@ -123,7 +138,7 @@ def test_append_refreshes_active_snapshot_from_durable_history():
     assert store.append_turn("session-a", "third", "three", owner=owner)
 
     payload = json.loads(client.values["agentic-rag:memory:session-a:snapshot"])
-    assert [turn["user_original"] for turn in payload["turns"]] == ["second", "third"]
+    assert [turn["user_original"] for turn in payload["turns"]] == ["first", "second", "third"]
     assert durable.appended[0][-1] == owner
 
 
@@ -146,3 +161,44 @@ def test_delete_keeps_durable_delete_authoritative_when_redis_is_down():
 
     assert store.delete_session("session-a", owner=Principal("tenant-a", "user-a"))
     assert "session-a" not in durable.sessions
+
+
+def test_compaction_advances_cursor_and_keeps_recent_raw_turns(monkeypatch):
+    durable = FakeDurableStore()
+    durable.turns["session-a"] = [
+        {"turn_index": index, "user_original": "u" * 80, "assistant_final": "a" * 80}
+        for index in range(1, 9)
+    ]
+    client = FakeRedis()
+    store = HotSessionMemoryStore(durable, RedisSessionMemoryCache(client, ttl_seconds=60), recent_turns=6)
+    owner = Principal("tenant-a", "user-a")
+
+    assert store.compact_context(
+        "session-a",
+        lambda old, turns: f"summary through {turns[-1]['turn_index']}",
+        token_budget=200,
+        min_recent_turns=6,
+        owner=owner,
+    )
+
+    assert durable.sessions["session-a"]["summarized_through_turn"] == 2
+    payload = json.loads(client.values["agentic-rag:memory:session-a:snapshot"])
+    assert [turn["turn_index"] for turn in payload["turns"]] == [3, 4, 5, 6, 7, 8]
+
+
+def test_compaction_failure_does_not_advance_cursor_or_replace_summary():
+    durable = FakeDurableStore()
+    durable.turns["session-a"] = [
+        {"turn_index": index, "user_original": "u" * 80, "assistant_final": "a" * 80}
+        for index in range(1, 9)
+    ]
+    store = HotSessionMemoryStore(durable, RedisSessionMemoryCache(FakeRedis(), ttl_seconds=60), recent_turns=6)
+    owner = Principal("tenant-a", "user-a")
+
+    with pytest.raises(RuntimeError):
+        store.compact_context(
+            "session-a", lambda old, turns: "", token_budget=200, min_recent_turns=6, owner=owner
+        )
+
+    assert durable.sessions["session-a"]["summarized_through_turn"] == 0
+    assert durable.sessions["session-a"]["rolling_summary"] == "Earlier preference: concise answers."

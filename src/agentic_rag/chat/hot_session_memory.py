@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from typing import Callable
+
+from agentic_rag import config
 from agentic_rag.security.auth import Principal
 
 from .redis_memory import MemoryBackendUnavailable, MemorySnapshot, RedisSessionMemoryCache
@@ -56,6 +59,44 @@ class HotSessionMemoryStore:
             self._refresh_snapshot(session_id, owner=owner)
         return appended
 
+    def compact_context(
+        self,
+        session_id: str,
+        summarizer: Callable[[str, list[dict]], str],
+        *,
+        token_budget: int,
+        min_recent_turns: int,
+        owner: Principal | None = None,
+    ) -> bool:
+        """Summarize only old, not-yet-summarized turns after archival succeeds."""
+        session = self._durable_store.get_session(session_id, owner=owner)
+        if session is None:
+            return False
+        turns = self._durable_store.get_session_turns(session_id, owner=owner)
+        through = int(session.get("summarized_through_turn") or 0)
+        pending = [turn for turn in turns if int(turn.get("turn_index") or 0) > through]
+        summary = session.get("rolling_summary") or ""
+        if self._estimate_tokens(summary) + self._estimate_turns(pending) <= token_budget:
+            self._refresh_snapshot(session_id, owner=owner)
+            return False
+        candidates = pending[:-min_recent_turns] if len(pending) > min_recent_turns else []
+        if not candidates:
+            self._refresh_snapshot(session_id, owner=owner)
+            return False
+        new_summary = summarizer(summary, candidates)
+        if not new_summary or not new_summary.strip():
+            raise RuntimeError("Conversation summarizer returned an empty summary")
+        summarized_through = int(candidates[-1]["turn_index"])
+        updated = self._durable_store.update_rolling_summary(
+            session_id,
+            new_summary,
+            summarized_through,
+            owner=owner,
+        )
+        if updated:
+            self._refresh_snapshot(session_id, owner=owner)
+        return updated
+
     def get_recent_turns(
         self,
         session_id: str,
@@ -93,11 +134,7 @@ class HotSessionMemoryStore:
         session = self._durable_store.get_session(session_id, owner=owner)
         if session is None:
             return MemorySnapshot(rolling_summary="", turns=[])
-        turns = self._durable_store.get_recent_turns(
-            session_id,
-            limit=self._recent_turns,
-            owner=owner,
-        )
+        turns = self._context_turns(session_id, session, owner=owner)
         snapshot = MemorySnapshot(
             rolling_summary=session.get("rolling_summary") or "",
             turns=turns,
@@ -110,4 +147,41 @@ class HotSessionMemoryStore:
         return snapshot
 
     def _refresh_snapshot(self, session_id: str, *, owner: Principal | None) -> None:
-        self._hydrate_snapshot(session_id, owner=owner)
+        session = self._durable_store.get_session(session_id, owner=owner)
+        if session is None:
+            return
+        turns = self._context_turns(session_id, session, owner=owner)
+        self._cache.put(
+            session_id,
+            rolling_summary=session.get("rolling_summary") or "",
+            turns=turns,
+        )
+
+    def _context_turns(self, session_id: str, session: dict, *, owner: Principal | None) -> list[dict]:
+        turns = self._durable_store.get_session_turns(session_id, owner=owner)
+        through = int(session.get("summarized_through_turn") or 0)
+        pending = [turn for turn in turns if int(turn.get("turn_index") or 0) > through]
+        summary_tokens = self._estimate_tokens(session.get("rolling_summary") or "")
+        selected: list[dict] = []
+        used = summary_tokens
+        for turn in reversed(pending):
+            turn_tokens = self._estimate_turns([turn])
+            if selected and len(selected) >= self._recent_turns and used + turn_tokens > config.MEMORY_CONTEXT_TOKEN_BUDGET:
+                break
+            selected.append(turn)
+            used += turn_tokens
+        return list(reversed(selected))
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        # A deliberately conservative, dependency-free approximation for budget governance.
+        return (len(text or "") + 3) // 4
+
+    @classmethod
+    def _estimate_turns(cls, turns: list[dict]) -> int:
+        return sum(
+            cls._estimate_tokens(str(turn.get("user_original") or ""))
+            + cls._estimate_tokens(str(turn.get("assistant_final") or ""))
+            + 8
+            for turn in turns
+        )

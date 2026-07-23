@@ -228,6 +228,9 @@ LangGraph uses a shallow Redis checkpoint with the same sliding TTL; Redis 8 mus
 RedisJSON and RediSearch. A Redis lock serializes chat and deletion for the same `session_id`,
 returns 409 after `MEMORY_LOCK_WAIT_SECONDS` (three seconds by default), and permits unrelated
 sessions to proceed in parallel. Course source scope is passed as immutable per-invocation graph configuration.
+When a conversation exceeds `MEMORY_CONTEXT_TOKEN_BUDGET` (6000 by default), older unsummarized
+turns are merged into the PostgreSQL rolling summary while at least the six most recent raw turns remain.
+Summary failures do not advance the cursor or affect the archived answer.
 
 Chat:
 

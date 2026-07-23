@@ -244,6 +244,42 @@ class PgSessionMemoryStore:
                 rows = cur.fetchall()
         return [self._serialize_turn(row) for row in rows]
 
+    def update_rolling_summary(
+        self,
+        session_id: str,
+        summary: str,
+        summarized_through_turn: int,
+        *,
+        owner: Principal | None = None,
+    ) -> bool:
+        owner = self._owner(owner)
+        memory_id = _memory_uuid(session_id)
+        if memory_id is None or summarized_through_turn <= 0:
+            return False
+        with transaction() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE chat_sessions
+                    SET rolling_summary = %s,
+                        summarized_through_turn = %s,
+                        updated_at = now()
+                    WHERE memory_id = %s
+                      AND tenant_id = %s
+                      AND user_id = %s
+                      AND summarized_through_turn < %s
+                    """,
+                    (
+                        (summary or "").strip(),
+                        summarized_through_turn,
+                        memory_id,
+                        owner.tenant_id,
+                        owner.user_id,
+                        summarized_through_turn,
+                    ),
+                )
+                return cur.rowcount == 1
+
     @staticmethod
     def format_recent_turns(turns: Iterable[dict]) -> str:
         turns = list(turns)

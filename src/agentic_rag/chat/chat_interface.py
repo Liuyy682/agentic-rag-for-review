@@ -169,17 +169,40 @@ class ChatInterface:
 
     def _save_turn(self, session_id, user_original, assistant_final, course_name=None, owner=None):
         try:
-            self.session_memory.append_turn(
+            appended = self.session_memory.append_turn(
                 session_id=session_id,
                 user_original=user_original,
                 assistant_final=assistant_final,
                 course_name=course_name,
                 **self._owner_kwargs(owner),
             )
+            if appended:
+                compact = getattr(self.session_memory, "compact_context", None)
+                if compact:
+                    compact(
+                        session_id,
+                        self._summarize_older_turns,
+                        token_budget=config.MEMORY_CONTEXT_TOKEN_BUDGET,
+                        min_recent_turns=config.MEMORY_RECENT_TURNS,
+                        **self._owner_kwargs(owner),
+                    )
         except MemoryBackendUnavailable:
             raise
         except Exception as e:
             print(f"Warning: Could not save session memory for {session_id}: {e}")
+
+    def _summarize_older_turns(self, existing_summary, turns):
+        conversation = self.session_memory.format_recent_turns(turns)
+        prompt = (
+            "Maintain a compact rolling conversation memory. Preserve user preferences, "
+            "decisions, constraints, unresolved questions, and factual continuity. "
+            "Prior assistant answers are continuity only, never document evidence. "
+            "Return only the updated summary.\n\n"
+            f"Existing summary:\n{existing_summary or '(none)'}\n\n"
+            f"Older turns to merge:\n{conversation}"
+        )
+        response = self.rag_system.llm.invoke([SystemMessage(content=prompt)])
+        return str(response.content or "").strip()
 
     def _generate_title_async(self, session_id: str, owner=None):
         """Generate a concise session title using the LLM in a daemon thread."""
