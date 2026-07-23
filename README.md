@@ -223,6 +223,10 @@ OCR/VLM 分析结果会以 `OCR:` / `RAG_SUMMARY:` / `KEY_TERMS:` 三字段格�
 `AUTH_MODE=dev`、`DEV_TENANT_ID` 和 `DEV_USER_ID`；生产环境使用默认的
 `AUTH_MODE=oidc` 并配置 issuer、audience、JWKS URL 及身份 Claim。
 聊天入口会先检查 Redis 热记忆；Redis 暂不可用时返回 503，而不会退回到进程内会话状态。
+LangGraph Checkpoint 同样存入 Redis 的浅层 Checkpoint，并使用同一滑动 TTL；Redis 8
+必须提供 RedisJSON 与 RediSearch。相同 `session_id` 的聊天和删除操作通过 Redis 分布式锁
+串行化，等待超过 `MEMORY_LOCK_WAIT_SECONDS`（默认 3 秒）返回 409；不同会话可并行。
+课程文档范围通过每次图调用的不可变配置传递，不再保存在共享进程字段中。
 
 - `POST /api/documents/upload`：上传文档并创建后台摄入任务。
 - `GET /api/documents/tasks/{task_id}`：查询摄入进度和结果。
@@ -248,6 +252,7 @@ OCR/VLM 分析结果会以 `OCR:` / `RAG_SUMMARY:` / `KEY_TERMS:` 三字段格�
 - `runtime/index_state`：索引 manifest 和课程结构。
 - PostgreSQL `chat_sessions` / `chat_turns`：会话元数据与完整问答历史。
 - Redis：活跃会话的滚动摘要和最近原始轮次缓存，默认 7 天未访问自动过期。
+- Redis：LangGraph 的浅层 Checkpoint 与按 MemoryId 的可续租分布式锁。
 - `runtime/evaluation_reports`：评测报告。
 
 ## 检索行为

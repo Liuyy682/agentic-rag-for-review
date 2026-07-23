@@ -1,5 +1,4 @@
 from langgraph.graph import START, END, StateGraph
-from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.prebuilt import ToolNode
 from functools import partial
 
@@ -33,8 +32,9 @@ def create_task_executor_subgraph(llm, tools_list):
 def create_agent_subgraph(llm, tools_list):
     return create_task_executor_subgraph(llm, tools_list)
 
-def create_agent_graph(llm, tools_list):
-    checkpointer = InMemorySaver()
+def create_agent_graph(llm, tools_list, *, checkpointer):
+    if checkpointer is None:
+        raise ValueError("A persistent LangGraph checkpointer is required")
 
     print("Compiling agent graph...")
     agent_subgraph = create_task_executor_subgraph(llm, tools_list)

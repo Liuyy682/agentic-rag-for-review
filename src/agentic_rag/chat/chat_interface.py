@@ -256,78 +256,77 @@ class ChatInterface:
             yield "⚠️ System not initialized!"
             return
 
-        with self.rag_system.chat_lock:
-            if self.course_store and course_name:
-                self.rag_system.set_course_scope(self.course_store.source_files_for_course(course_name))
-            else:
-                self.rag_system.set_course_scope([])
+        source_files = (
+            self.course_store.source_files_for_course(course_name)
+            if self.course_store and course_name
+            else []
+        )
+        session_id = session_id or self.rag_system.thread_id
+        user_message = message.strip()
+        config = self.rag_system.get_config(thread_id=session_id, source_files=source_files)
+        graph = self.rag_system.agent_graph
 
-            session_id    = session_id or self.rag_system.thread_id
-            user_message  = message.strip()
-            config        = self.rag_system.get_config(thread_id=session_id)
-            graph         = self.rag_system.agent_graph
+        snapshot = graph.get_state(config)
+        is_resuming = bool(snapshot and snapshot.next)
 
-            snapshot = graph.get_state(config)
-            is_resuming = bool(snapshot and snapshot.next)
+        if is_resuming:
+            graph.update_state(
+                config,
+                {"messages": [HumanMessage(content=user_message)]},
+            )
+            stream_input = None
+        else:
+            memory = self._load_conversation_memory(session_id, owner=owner)
+            stream_input = {
+                "messages": [HumanMessage(content=user_message)],
+                "conversation_memory": memory,
+            }
 
-            if is_resuming:
-                graph.update_state(
-                    config,
-                    {"messages": [HumanMessage(content=user_message)]},
+        response_messages = []
+        active_tool_calls = {}
+        system_node_buffer = {}
+
+        try:
+            for chunk, metadata in graph.stream(stream_input, config=config, stream_mode="messages"):
+                node = metadata.get("langgraph_node", "")
+
+                if node in SYSTEM_NODES and isinstance(chunk, AIMessageChunk) and chunk.content:
+                    self._handle_system_node(chunk, node, response_messages, system_node_buffer)
+
+                elif hasattr(chunk, "tool_calls") and chunk.tool_calls:
+                    self._handle_tool_call(chunk, response_messages, active_tool_calls)
+
+                elif isinstance(chunk, ToolMessage):
+                    self._handle_tool_result(chunk, response_messages, active_tool_calls)
+
+                elif isinstance(chunk, AIMessageChunk) and chunk.content and node not in SILENT_NODES:
+                    self._handle_llm_token(chunk, node, response_messages)
+
+                yield response_messages
+
+            final_snapshot = graph.get_state(config)
+            if final_snapshot and final_snapshot.next:
+                yield response_messages
+                return
+
+            final_response = self._extract_final_response(response_messages)
+            if final_response:
+                self._save_turn(
+                    session_id,
+                    user_message,
+                    final_response,
+                    course_name=course_name,
+                    owner=owner,
                 )
-                stream_input = None
-            else:
-                memory = self._load_conversation_memory(session_id, owner=owner)
-                stream_input = {
-                    "messages": [HumanMessage(content=user_message)],
-                    "conversation_memory": memory,
-                }
 
-            response_messages  = []
-            active_tool_calls  = {}
-            system_node_buffer = {}
+            threading.Thread(
+                target=self._generate_title_async,
+                args=(session_id, owner),
+                daemon=True,
+            ).start()
 
-            try:
-                for chunk, metadata in graph.stream(stream_input, config=config, stream_mode="messages"):
-                    node = metadata.get("langgraph_node", "")
-
-                    if node in SYSTEM_NODES and isinstance(chunk, AIMessageChunk) and chunk.content:
-                        self._handle_system_node(chunk, node, response_messages, system_node_buffer)
-
-                    elif hasattr(chunk, "tool_calls") and chunk.tool_calls:
-                        self._handle_tool_call(chunk, response_messages, active_tool_calls)
-
-                    elif isinstance(chunk, ToolMessage):
-                        self._handle_tool_result(chunk, response_messages, active_tool_calls)
-
-                    elif isinstance(chunk, AIMessageChunk) and chunk.content and node not in SILENT_NODES:
-                        self._handle_llm_token(chunk, node, response_messages)
-
-                    yield response_messages
-
-                final_snapshot = graph.get_state(config)
-                if final_snapshot and final_snapshot.next:
-                    yield response_messages
-                    return
-
-                final_response = self._extract_final_response(response_messages)
-                if final_response:
-                    self._save_turn(
-                        session_id,
-                        user_message,
-                        final_response,
-                        course_name=course_name,
-                        owner=owner,
-                    )
-
-                threading.Thread(
-                    target=self._generate_title_async,
-                    args=(session_id, owner),
-                    daemon=True,
-                ).start()
-
-            except Exception as e:
-                yield f"❌ Error: {str(e)}"
+        except Exception as e:
+            yield f"❌ Error: {str(e)}"
 
     def clear_session(self, session_id=None, owner=None):
         sid = session_id or self.rag_system.thread_id

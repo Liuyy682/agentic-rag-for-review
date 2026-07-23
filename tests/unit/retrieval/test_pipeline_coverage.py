@@ -263,9 +263,8 @@ class TestChildContexts(unittest.TestCase):
 
     def test_allowed_source_filter_skips_disallowed(self):
         pipeline = self._pipeline()
-        pipeline.set_allowed_source_files(["allowed.pdf"])
         docs = [child_doc(chunk_id="c1", source="other.pdf", source_file="other.pdf")]
-        contexts = pipeline.child_contexts(docs)
+        contexts = pipeline.child_contexts(docs, allowed_source_files=["allowed.pdf"])
         self.assertEqual(contexts, [])
 
 
@@ -318,9 +317,8 @@ class TestNeighborContexts(unittest.TestCase):
         ]
         vector_db = FakeVectorDb(neighbors=neighbors)
         pipeline = RetrievalPipeline(vector_db=vector_db, parent_store_manager=FakeParentStore())
-        pipeline.set_allowed_source_files(["source.pdf"])
         docs = [child_doc(chunk_id="c1", chunk_index=1)]
-        contexts = pipeline.neighbor_contexts(docs, window=1)
+        contexts = pipeline.neighbor_contexts(docs, window=1, allowed_source_files=["source.pdf"])
         self.assertNotIn("blocked", [c["content"] for c in contexts])
 
 
@@ -345,8 +343,7 @@ class TestParentContexts(unittest.TestCase):
     def test_allowed_source_filter_skips_parent(self):
         store = FakeParentStore(parents={"parent_1": parent_row(source="other.pdf")})
         pipeline = RetrievalPipeline(vector_db=FakeVectorDb(), parent_store_manager=store)
-        pipeline.set_allowed_source_files(["source.pdf"])
-        contexts = pipeline.parent_contexts(["parent_1"], [])
+        contexts = pipeline.parent_contexts(["parent_1"], [], allowed_source_files=["source.pdf"])
         self.assertEqual(contexts, [])
 
     def test_fallback_for_parent_id_missing_from_store(self):

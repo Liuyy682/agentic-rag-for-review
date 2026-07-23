@@ -1,5 +1,6 @@
 from typing import List
 
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
 from agentic_rag.retrieval.pipeline import RetrievalPipeline
@@ -16,12 +17,14 @@ class ToolFactory:
     def _format_child_chunk_results(self, results) -> str:
         return self.pipeline.format_child_chunk_results(results)
 
-    def _search_child_chunk_documents(self, query: str, limit: int):
-        return self.pipeline.search_child_chunk_documents(query, limit)
+    def _search_child_chunk_documents(self, query: str, limit: int, *, source_files=None):
+        return self.pipeline.search_child_chunk_documents(
+            query, limit, allowed_source_files=source_files
+        )
 
-    def _search_child_chunks(self, query: str, limit: int) -> str:
+    def _search_child_chunks(self, query: str, limit: int, *, source_files=None) -> str:
         """Search for the top K most relevant child chunks."""
-        return self.pipeline.search_child_chunks(query, limit)
+        return self.pipeline.search_child_chunks(query, limit, allowed_source_files=source_files)
 
     def _rerank_child_documents(self, query: str, docs):
         return self.pipeline.rerank_child_documents(query, docs)
@@ -29,8 +32,10 @@ class ToolFactory:
     def _context_from_child_doc(self, doc) -> dict:
         return self.pipeline.context_from_child_doc(doc)
 
-    def _parent_contexts(self, parent_ids, fallback_docs):
-        return self.pipeline.parent_contexts(parent_ids, fallback_docs)
+    def _parent_contexts(self, parent_ids, fallback_docs, *, source_files=None):
+        return self.pipeline.parent_contexts(
+            parent_ids, fallback_docs, allowed_source_files=source_files
+        )
 
     def _rag_research(
         self,
@@ -39,18 +44,20 @@ class ToolFactory:
         keep_parent_ids=None,
         exclude_parent_ids=None,
         retry_reason=None,
+        config: RunnableConfig | None = None,
     ) -> str:
         """Run the deterministic RAG retrieval pipeline for one task."""
+        source_files = list(
+            ((config or {}).get("configurable") or {}).get("course_scope_sources") or []
+        )
         return self.pipeline.rag_research(
             query=query,
             focus=focus,
             keep_parent_ids=keep_parent_ids,
             exclude_parent_ids=exclude_parent_ids,
             retry_reason=retry_reason,
+            allowed_source_files=source_files,
         )
-
-    def set_allowed_source_files(self, source_files=None):
-        self.pipeline.set_allowed_source_files(source_files)
 
     def _retrieve_many_parent_chunks(self, parent_ids) -> str:
         return self.pipeline.retrieve_many_parent_chunks(parent_ids)
@@ -63,4 +70,3 @@ class ToolFactory:
         """Create and return the tools exposed to the task executor LLM."""
         rag_tool = tool("rag_research")(self._rag_research)
         return [rag_tool]
-

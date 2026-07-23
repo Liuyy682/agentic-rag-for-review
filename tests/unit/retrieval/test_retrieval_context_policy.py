@@ -220,12 +220,11 @@ class TestRetrievalContextPolicy(unittest.TestCase):
             ),
             parent_store_manager=store,
         )
-        pipeline.set_allowed_source_files(["source.pdf"])
 
         with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), \
             patch("agentic_rag.config.RETRIEVAL_CONTEXT_POLICY", "neighbor"), \
             patch("agentic_rag.config.RERANKER_ENABLED", False):
-            result = json.loads(pipeline.rag_research("query"))
+            result = json.loads(pipeline.rag_research("query", allowed_source_files=["source.pdf"]))
 
         self.assertEqual([context["source"] for context in result["contexts"]], ["source.pdf", "source.pdf"])
         self.assertNotIn("blocked neighbor", [context["content"] for context in result["contexts"]])

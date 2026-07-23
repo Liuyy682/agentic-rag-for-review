@@ -1,4 +1,3 @@
-import threading
 import uuid
 from langchain_openai import ChatOpenAI
 from agentic_rag import config
@@ -7,6 +6,7 @@ from agentic_rag.storage.pg_parent_store import PgParentStoreManager
 from agentic_rag.ingestion.chunking import DocumentChunker
 from agentic_rag.agent.tools import ToolFactory
 from agentic_rag.agent.graph import create_agent_graph
+from agentic_rag.agent.redis_checkpoint import create_redis_checkpointer
 from agentic_rag.observability.langfuse import Observability
 
 class RAGSystem:
@@ -20,7 +20,7 @@ class RAGSystem:
         self.tool_factory = None
         self.thread_id = str(uuid.uuid4())
         self.recursion_limit = config.GRAPH_RECURSION_LIMIT
-        self.chat_lock = threading.Lock()
+        self.checkpointer = None
 
     def initialize(self):
         if not config.DEEPSEEK_API_KEY:
@@ -39,15 +39,18 @@ class RAGSystem:
             parent_store_manager=self.parent_store,
         )
         tools = self.tool_factory.create_tools()
-        self.agent_graph = create_agent_graph(llm, tools)
+        self.checkpointer = create_redis_checkpointer()
+        self.agent_graph = create_agent_graph(llm, tools, checkpointer=self.checkpointer)
         self.llm = llm
 
-    def set_course_scope(self, source_files=None):
-        if self.tool_factory:
-            self.tool_factory.set_allowed_source_files(source_files)
-
-    def get_config(self, thread_id=None):
-        cfg = {"configurable": {"thread_id": thread_id or self.thread_id}, "recursion_limit": self.recursion_limit}
+    def get_config(self, thread_id=None, *, source_files=None):
+        cfg = {
+            "configurable": {
+                "thread_id": thread_id or self.thread_id,
+                "course_scope_sources": tuple(sorted({item for item in (source_files or []) if item})),
+            },
+            "recursion_limit": self.recursion_limit,
+        }
         handler = self.observability.get_handler()
         if handler:
             cfg["callbacks"] = [handler]
@@ -61,3 +64,14 @@ class RAGSystem:
             print(f"Warning: Could not delete thread {tid}: {e}")
         if thread_id is None:
             self.thread_id = str(uuid.uuid4())
+
+    def close(self) -> None:
+        if self.checkpointer is None:
+            return
+        close = getattr(self.checkpointer, "close", None)
+        if close:
+            close()
+            return
+        client = getattr(self.checkpointer, "_redis", None)
+        if client is not None:
+            client.close()

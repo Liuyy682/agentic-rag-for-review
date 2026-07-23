@@ -94,3 +94,8 @@ class RedisSessionMemoryCache:
         close = getattr(self._client, "close", None)
         if close:
             close()
+
+    @property
+    def client(self) -> Any:
+        """Shared client used by the hot snapshot cache and session mutexes."""
+        return self._client

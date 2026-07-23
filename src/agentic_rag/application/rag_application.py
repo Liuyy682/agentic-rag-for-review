@@ -1,6 +1,7 @@
 from agentic_rag import config
 from agentic_rag.chat.chat_interface import ChatInterface
 from agentic_rag.chat.hot_session_memory import HotSessionMemoryStore
+from agentic_rag.chat.distributed_lock import RedisMemoryLockManager
 from agentic_rag.chat.pg_session_memory import PgSessionMemoryStore
 from agentic_rag.chat.redis_memory import RedisSessionMemoryCache
 from agentic_rag.ingestion.cloud_document_manager import CloudDocumentManager
@@ -22,6 +23,7 @@ class RagApplication:
         object_storage = MinioObjectStorage.from_config()
         repository = PgDocumentRepository()
         course_store = PgCourseStructureStore()
+        cache = RedisSessionMemoryCache.from_config()
         return cls(
             rag_system=rag_system,
             document_manager=CloudDocumentManager(
@@ -35,8 +37,14 @@ class RagApplication:
                 course_store=course_store,
                 session_memory=HotSessionMemoryStore(
                     PgSessionMemoryStore(),
-                    RedisSessionMemoryCache.from_config(),
+                    cache,
                     recent_turns=config.MEMORY_RECENT_TURNS,
+                    lock_manager=RedisMemoryLockManager(
+                        cache.client,
+                        wait_seconds=config.MEMORY_LOCK_WAIT_SECONDS,
+                        lease_seconds=config.MEMORY_LOCK_LEASE_SECONDS,
+                        renew_interval_seconds=config.MEMORY_LOCK_RENEW_INTERVAL_SECONDS,
+                    ),
                 ),
             ),
         )
@@ -45,3 +53,4 @@ class RagApplication:
         close = getattr(self.chat_interface.session_memory, "close", None)
         if close:
             close()
+        self.rag_system.close()

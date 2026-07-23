@@ -32,19 +32,21 @@ class RetrievalPipeline:
     def __init__(self, vector_db=None, parent_store_manager=None):
         self.vector_db = vector_db or PgVectorManager()
         self.parent_store_manager = parent_store_manager or PgParentStoreManager()
-        self.allowed_source_files: set[str] = set()
+    @staticmethod
+    def _normalise_source_scope(source_files: Optional[List[str]]) -> set[str]:
+        return {item for item in (source_files or []) if item}
 
-    def set_allowed_source_files(self, source_files: Optional[List[str]] = None) -> None:
-        self.allowed_source_files = {item for item in (source_files or []) if item}
-
-    def _filter_by_allowed_sources(self, docs: List[Document]) -> List[Document]:
-        if not self.allowed_source_files:
+    def _filter_by_allowed_sources(
+        self, docs: List[Document], allowed_source_files: Optional[List[str]] = None
+    ) -> List[Document]:
+        scope = self._normalise_source_scope(allowed_source_files)
+        if not scope:
             return docs
         return [
             doc for doc in docs
-            if (doc.metadata or {}).get("source_file") in self.allowed_source_files
-            or (doc.metadata or {}).get("source") in self.allowed_source_files
-            or (doc.metadata or {}).get("doc_id") in self.allowed_source_files
+            if (doc.metadata or {}).get("source_file") in scope
+            or (doc.metadata or {}).get("source") in scope
+            or (doc.metadata or {}).get("doc_id") in scope
         ]
 
     def format_child_chunk_results(self, results) -> str:
@@ -71,7 +73,9 @@ class RetrievalPipeline:
 
         return "\n\n".join(formatted_results)
 
-    def search_child_chunk_documents(self, query: str, limit: int) -> List[Document]:
+    def search_child_chunk_documents(
+        self, query: str, limit: int, *, allowed_source_files: Optional[List[str]] = None
+    ) -> List[Document]:
         limit = limit or config.RRF_TOP_K
         retrieval_limit = limit
         if config.RERANKER_ENABLED:
@@ -99,11 +103,17 @@ class RetrievalPipeline:
         else:
             raise ValueError(f"Unsupported retrieval fusion mode: {mode}")
 
-        return self._filter_by_allowed_sources(list(results or []))[:retrieval_limit]
+        return self._filter_by_allowed_sources(
+            list(results or []), allowed_source_files
+        )[:retrieval_limit]
 
-    def search_child_chunks(self, query: str, limit: int) -> str:
+    def search_child_chunks(
+        self, query: str, limit: int, *, allowed_source_files: Optional[List[str]] = None
+    ) -> str:
         try:
-            results = self.search_child_chunk_documents(query, limit)
+            results = self.search_child_chunk_documents(
+                query, limit, allowed_source_files=allowed_source_files
+            )
             if not results:
                 return "NO_RELEVANT_CHUNKS"
 
@@ -152,12 +162,14 @@ class RetrievalPipeline:
             "score": score,
         }
 
-    def child_contexts(self, docs: List[Document]) -> List[dict]:
+    def child_contexts(
+        self, docs: List[Document], *, allowed_source_files: Optional[List[str]] = None
+    ) -> List[dict]:
         contexts: List[dict] = []
         seen = set()
         for doc in docs:
             metadata = doc.metadata or {}
-            if not self._context_source_allowed(metadata):
+            if not self._context_source_allowed(metadata, allowed_source_files):
                 continue
             key = metadata.get("chunk_id") or f"{metadata.get('parent_id', '')}:{doc.page_content}"
             if key in seen:
@@ -166,16 +178,21 @@ class RetrievalPipeline:
             contexts.append(self.context_from_child_doc(doc))
         return contexts
 
-    def _context_source_allowed(self, metadata: dict) -> bool:
-        if not self.allowed_source_files:
+    def _context_source_allowed(
+        self, metadata: dict, allowed_source_files: Optional[List[str]] = None
+    ) -> bool:
+        scope = self._normalise_source_scope(allowed_source_files)
+        if not scope:
             return True
         return (
-            metadata.get("source_file") in self.allowed_source_files
-            or metadata.get("source") in self.allowed_source_files
-            or metadata.get("doc_id") in self.allowed_source_files
+            metadata.get("source_file") in scope
+            or metadata.get("source") in scope
+            or metadata.get("doc_id") in scope
         )
 
-    def neighbor_contexts(self, docs: List[Document], window: int) -> List[dict]:
+    def neighbor_contexts(
+        self, docs: List[Document], window: int, *, allowed_source_files: Optional[List[str]] = None
+    ) -> List[dict]:
         anchors = []
         fallback_docs: List[Document] = []
         score_by_child_id = {}
@@ -205,7 +222,7 @@ class RetrievalPipeline:
         seen = set()
         for child in raw_neighbors or []:
             metadata = child.get("metadata", {}) or {}
-            if not self._context_source_allowed(metadata):
+            if not self._context_source_allowed(metadata, allowed_source_files):
                 continue
             child_id = metadata.get("chunk_id", "")
             parent_id = child.get("parent_id", "")
@@ -223,14 +240,16 @@ class RetrievalPipeline:
                 "score": score_by_child_id.get(child_id, score_by_parent.get(parent_id)),
             })
 
-        for context in self.child_contexts(fallback_docs):
+        for context in self.child_contexts(fallback_docs, allowed_source_files=allowed_source_files):
             key = context.get("child_id") or f"{context.get('parent_id', '')}:{context.get('content', '')}"
             if key not in seen:
                 seen.add(key)
                 contexts.append(context)
         return contexts
 
-    def parent_contexts(self, parent_ids: List[str], fallback_docs: List[Document]) -> List[dict]:
+    def parent_contexts(
+        self, parent_ids: List[str], fallback_docs: List[Document], *, allowed_source_files: Optional[List[str]] = None
+    ) -> List[dict]:
         contexts: List[dict] = []
         fallback_by_parent = {
             (doc.metadata or {}).get("parent_id", ""): doc
@@ -249,9 +268,10 @@ class RetrievalPipeline:
             parent_id = parent.get("parent_id", "")
             if not parent_id or parent_id in seen:
                 continue
-            if self.allowed_source_files:
-                if not self._context_source_allowed(parent.get("metadata", {}) or {}):
-                    continue
+            if not self._context_source_allowed(
+                parent.get("metadata", {}) or {}, allowed_source_files
+            ):
+                continue
             fallback = fallback_by_parent.get(parent_id)
             fallback_context = self.context_from_child_doc(fallback) if fallback else {}
             seen.add(parent_id)
@@ -317,15 +337,20 @@ class RetrievalPipeline:
         policy: str,
         parent_ids: List[str],
         reranked_docs: List[Document],
+        *,
+        allowed_source_files: Optional[List[str]] = None,
     ) -> List[dict]:
         if policy == "child":
-            return self.child_contexts(reranked_docs)
+            return self.child_contexts(reranked_docs, allowed_source_files=allowed_source_files)
         if policy == "neighbor":
             return self.neighbor_contexts(
                 reranked_docs,
                 window=getattr(config, "RETRIEVAL_NEIGHBOR_WINDOW", 1),
+                allowed_source_files=allowed_source_files,
             )
-        return self.parent_contexts(parent_ids, reranked_docs)
+        return self.parent_contexts(
+            parent_ids, reranked_docs, allowed_source_files=allowed_source_files
+        )
 
     def rag_research(
         self,
@@ -334,7 +359,9 @@ class RetrievalPipeline:
         keep_parent_ids: Optional[List[str]] = None,
         exclude_parent_ids: Optional[List[str]] = None,
         retry_reason: Optional[str] = None,
+        allowed_source_files: Optional[List[str]] = None,
     ) -> str:
+        source_scope = sorted(self._normalise_source_scope(allowed_source_files))
         keep_parent_ids = keep_parent_ids or []
         exclude_parent_ids = set(exclude_parent_ids or [])
         effective_query = f"{query}\nFocus: {focus}" if focus else query
@@ -342,11 +369,13 @@ class RetrievalPipeline:
             "retry_reason": retry_reason or "",
             "retrieval_mode": config.RETRIEVAL_FUSION_MODE,
             "reranker_enabled": config.RERANKER_ENABLED,
-            "course_scope_sources": sorted(self.allowed_source_files),
+            "course_scope_sources": source_scope,
         }
 
         try:
-            child_docs = self.search_child_chunk_documents(effective_query, config.RRF_TOP_K)
+            child_docs = self.search_child_chunk_documents(
+                effective_query, config.RRF_TOP_K, allowed_source_files=source_scope
+            )
             diagnostics["child_candidates"] = len(child_docs)
             child_docs = [
                 doc for doc in child_docs
@@ -371,7 +400,12 @@ class RetrievalPipeline:
                     parent_ids.append(parent_id)
 
             selected_policy, policy_reason = self.select_context_policy(effective_query, reranked_docs, keep_parent_ids)
-            contexts = self.contexts_for_policy(selected_policy, parent_ids, reranked_docs)
+            contexts = self.contexts_for_policy(
+                selected_policy,
+                parent_ids,
+                reranked_docs,
+                allowed_source_files=source_scope,
+            )
             sources = sorted({ctx["source"] for ctx in contexts if ctx.get("source")})
             gaps = [] if contexts else ["No relevant document context was retrieved."]
             if contexts:

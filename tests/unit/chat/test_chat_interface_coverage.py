@@ -109,17 +109,14 @@ class FakeRag:
     def __init__(self, graph, threading_ok=True):
         self.agent_graph = graph
         self.thread_id = "s1"
-        self.chat_lock = __import__("threading").Lock()
         self.course_scope = None
         self.deleted = None
         self.observability = SimpleNamespace(flush=lambda: None)
         self.llm = SimpleNamespace(invoke=lambda msgs: SimpleNamespace(content="A Nice Title Here"))
 
-    def set_course_scope(self, files=None):
-        self.course_scope = files
-
-    def get_config(self, thread_id=None):
-        return {"configurable": {"thread_id": thread_id or self.thread_id}}
+    def get_config(self, thread_id=None, *, source_files=None):
+        self.course_scope = source_files
+        return {"configurable": {"thread_id": thread_id or self.thread_id, "course_scope_sources": tuple(source_files or [])}}
 
     def reset_thread(self, thread_id=None):
         self.deleted = thread_id

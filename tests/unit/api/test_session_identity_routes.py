@@ -98,3 +98,26 @@ def test_chat_returns_503_before_sse_when_redis_memory_is_unavailable(monkeypatc
         asyncio.run(routes.chat(body, request, Principal("tenant-a", "user-a")))
 
     assert exc_info.value.status_code == 503
+
+
+def test_chat_returns_409_before_sse_when_memory_id_lock_is_busy(monkeypatch):
+    class BusyMemoryStore:
+        def ensure_available(self):
+            return None
+
+        def get_session(self, session_id, *, owner):
+            return {"id": session_id}
+
+        def acquire_lock(self, session_id):
+            return None
+
+    store = BusyMemoryStore()
+    chat_interface = SimpleNamespace(session_memory=store)
+    monkeypatch.setattr(routes, "get_rag_app", lambda: SimpleNamespace(chat_interface=chat_interface))
+    request = Request({"type": "http", "method": "POST", "path": "/api/chat", "headers": []})
+    body = routes.ChatRequest(message="hello", session_id="memory-id")
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(routes.chat(body, request, Principal("tenant-a", "user-a")))
+
+    assert exc_info.value.status_code == 409

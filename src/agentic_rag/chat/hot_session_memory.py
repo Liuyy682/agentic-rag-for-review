@@ -8,15 +8,21 @@ from .redis_memory import MemoryBackendUnavailable, MemorySnapshot, RedisSession
 class HotSessionMemoryStore:
     """PostgreSQL-backed session memory with an expiring Redis active-context cache."""
 
-    def __init__(self, durable_store, cache: RedisSessionMemoryCache, *, recent_turns: int):
+    def __init__(self, durable_store, cache: RedisSessionMemoryCache, *, recent_turns: int, lock_manager=None):
         if recent_turns <= 0:
             raise ValueError("MEMORY_RECENT_TURNS must be positive")
         self._durable_store = durable_store
         self._cache = cache
         self._recent_turns = recent_turns
+        self._lock_manager = lock_manager
 
     def ensure_available(self) -> None:
         self._cache.ensure_available()
+
+    def acquire_lock(self, session_id: str):
+        if self._lock_manager is None:
+            return None
+        return self._lock_manager.acquire(session_id)
 
     def create_session(self, *args, **kwargs):
         return self._durable_store.create_session(*args, **kwargs)

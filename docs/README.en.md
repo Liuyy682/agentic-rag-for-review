@@ -224,6 +224,10 @@ Session and chat routes require a Bearer JWT. Local development may explicitly u
 `AUTH_MODE=dev` with `DEV_TENANT_ID` and `DEV_USER_ID`; production uses the default
 `AUTH_MODE=oidc` with issuer, audience, JWKS URL, and identity-claim settings.
 The chat endpoint checks Redis before opening SSE and returns 503 when hot memory is unavailable; it does not fall back to process-local session state.
+LangGraph uses a shallow Redis checkpoint with the same sliding TTL; Redis 8 must provide
+RedisJSON and RediSearch. A Redis lock serializes chat and deletion for the same `session_id`,
+returns 409 after `MEMORY_LOCK_WAIT_SECONDS` (three seconds by default), and permits unrelated
+sessions to proceed in parallel. Course source scope is passed as immutable per-invocation graph configuration.
 
 Chat:
 
@@ -232,6 +236,7 @@ Chat:
 
 Upload tasks are tracked in memory and expire after the task cleanup window. Chat turns and session metadata are persisted in PostgreSQL `chat_sessions` and `chat_turns` tables.
 Redis caches each active session's rolling summary and recent turns with a seven-day sliding TTL; cache misses rehydrate from PostgreSQL.
+It also holds the shallow LangGraph checkpoint and renewable MemoryId lock; PostgreSQL remains the durable transcript source.
 
 ## Runtime Data
 

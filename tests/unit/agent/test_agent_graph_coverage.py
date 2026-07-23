@@ -4,6 +4,7 @@ from pathlib import Path
 
 
 from langchain_core.messages import AIMessage
+from langgraph.checkpoint.memory import InMemorySaver
 
 from agentic_rag.agent.graph import (
     create_agent_graph,
@@ -47,7 +48,7 @@ class TestGraphAssembly(unittest.TestCase):
         self.assertIsNotNone(graph)
 
     def test_create_agent_graph_compiles(self):
-        graph = create_agent_graph(FakeLLM(), [])
+        graph = create_agent_graph(FakeLLM(), [], checkpointer=InMemorySaver())
         self.assertIsNotNone(graph)
         node_names = set(graph.get_graph().nodes.keys())
         for expected in {

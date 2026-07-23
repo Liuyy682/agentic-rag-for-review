@@ -40,13 +40,13 @@ class TestToolFactoryDelegation(unittest.TestCase):
         self.pipeline.search_child_chunk_documents.return_value = ["d1"]
         result = self.tool_factory._search_child_chunk_documents("query", 3)
         self.assertEqual(result, ["d1"])
-        self.pipeline.search_child_chunk_documents.assert_called_once_with("query", 3)
+        self.pipeline.search_child_chunk_documents.assert_called_once_with("query", 3, allowed_source_files=None)
 
     def test_search_child_chunks_delegates(self):
         self.pipeline.search_child_chunks.return_value = "chunk text"
         result = self.tool_factory._search_child_chunks("query", 2)
         self.assertEqual(result, "chunk text")
-        self.pipeline.search_child_chunks.assert_called_once_with("query", 2)
+        self.pipeline.search_child_chunks.assert_called_once_with("query", 2, allowed_source_files=None)
 
     def test_rerank_child_documents_delegates(self):
         self.pipeline.rerank_child_documents.return_value = ["ranked"]
@@ -64,7 +64,7 @@ class TestToolFactoryDelegation(unittest.TestCase):
         self.pipeline.parent_contexts.return_value = [{"parent_id": "p1"}]
         result = self.tool_factory._parent_contexts(["p1"], ["doc"])
         self.assertEqual(result, [{"parent_id": "p1"}])
-        self.pipeline.parent_contexts.assert_called_once_with(["p1"], ["doc"])
+        self.pipeline.parent_contexts.assert_called_once_with(["p1"], ["doc"], allowed_source_files=None)
 
     def test_rag_research_delegates_with_all_args(self):
         self.pipeline.rag_research.return_value = "{}"
@@ -82,11 +82,15 @@ class TestToolFactoryDelegation(unittest.TestCase):
             keep_parent_ids=["p1"],
             exclude_parent_ids=["p2"],
             retry_reason="weak",
+            allowed_source_files=[],
         )
 
-    def test_set_allowed_source_files_delegates(self):
-        self.tool_factory.set_allowed_source_files(["source.pdf"])
-        self.pipeline.set_allowed_source_files.assert_called_once_with(["source.pdf"])
+    def test_rag_research_uses_request_config_scope(self):
+        self.pipeline.rag_research.return_value = "{}"
+        self.tool_factory._rag_research(
+            "query", config={"configurable": {"course_scope_sources": ("source.pdf",)}}
+        )
+        self.assertEqual(self.pipeline.rag_research.call_args.kwargs["allowed_source_files"], ["source.pdf"])
 
     def test_retrieve_many_parent_chunks_delegates(self):
         self.pipeline.retrieve_many_parent_chunks.return_value = "many"

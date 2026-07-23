@@ -19,6 +19,7 @@ async def stream_chat(
     course_name: str | None,
     session_id: str,
     owner=None,
+    lock_lease=None,
 ) -> AsyncGenerator[str, None]:
     """Bridge the sync ChatInterface.chat() generator to async SSE StreamingResponse."""
     queue: asyncio.Queue = asyncio.Queue()
@@ -48,6 +49,8 @@ async def stream_chat(
         except Exception as e:
             _put_sse_str(queue, loop, _format_sse("error", json.dumps({"message": str(e)}, ensure_ascii=False)))
         finally:
+            if lock_lease is not None:
+                lock_lease.release()
             asyncio.run_coroutine_threadsafe(queue.put(None), loop)
 
     loop.run_in_executor(None, _run_sync)
@@ -59,6 +62,5 @@ async def stream_chat(
                 break
             yield sse_str
             await asyncio.sleep(0)
-    except asyncio.CancelledError:
+    finally:
         cancel_event.set()
-        raise

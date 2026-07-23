@@ -31,13 +31,14 @@ class FakeRagSystem:
         self.deleted_thread = None
         self.course_scope = None
         self.observability = SimpleNamespace(flush=lambda: None)
-        self.chat_lock = threading.Lock()
-
-    def set_course_scope(self, source_files=None):
+    def get_config(self, thread_id=None, *, source_files=None):
         self.course_scope = source_files
-
-    def get_config(self, thread_id=None):
-        return {"configurable": {"thread_id": thread_id or self.thread_id}}
+        return {
+            "configurable": {
+                "thread_id": thread_id or self.thread_id,
+                "course_scope_sources": tuple(source_files or []),
+            }
+        }
 
     def reset_thread(self, thread_id=None):
         self.deleted_thread = thread_id or self.thread_id
@@ -136,4 +137,3 @@ class TestChatInterfaceSessionMemory(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

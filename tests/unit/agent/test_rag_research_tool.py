@@ -78,7 +78,6 @@ class TestRagResearchTool(unittest.TestCase):
             vector_db=MultiSourceFakeVectorDb(),
             parent_store_manager=FakeParentStore(),
         )
-        self.tool_factory.set_allowed_source_files(["source.pdf"])
         with patch("agentic_rag.config.RETRIEVAL_FUSION_MODE", "dense"), \
             patch("agentic_rag.config.RETRIEVAL_CONTEXT_POLICY", "parent"), \
             patch("agentic_rag.config.RERANKER_ENABLED", False), \
@@ -98,7 +97,9 @@ class TestRagResearchTool(unittest.TestCase):
                     },
                 ],
             ):
-            result = json.loads(self.tool_factory._rag_research("query"))
+            result = json.loads(self.tool_factory._rag_research(
+                "query", config={"configurable": {"course_scope_sources": ("source.pdf",)}}
+            ))
 
         self.assertEqual(result["parent_ids"], ["parent_1"])
         self.assertEqual(result["sources"], ["source.pdf"])

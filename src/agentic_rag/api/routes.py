@@ -19,6 +19,19 @@ from agentic_rag.security.auth import Principal, get_principal
 router = APIRouter()
 
 
+async def _acquire_session_lock(store, session_id: str):
+    acquire_lock = getattr(store, "acquire_lock", None)
+    if acquire_lock is None:
+        return None
+    try:
+        lease = await asyncio.to_thread(acquire_lock, session_id)
+    except MemoryBackendUnavailable as exc:
+        raise HTTPException(status_code=503, detail="Chat memory is temporarily unavailable") from exc
+    if lease is None:
+        raise HTTPException(status_code=409, detail="Session is already processing a request")
+    return lease
+
+
 # ── Pydantic models ──────────────────────────────────────────────────────────
 
 class RenameCourseRequest(BaseModel):
@@ -203,10 +216,18 @@ async def delete_session(
 ):
     rag_app = get_rag_app()
     store = rag_app.chat_interface.session_memory
-    deleted = await asyncio.to_thread(store.delete_session, session_id, owner=principal)
-    if not deleted:
+    session = await asyncio.to_thread(store.get_session, session_id, owner=principal)
+    if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    rag_app.chat_interface.rag_system.reset_thread(session_id)
+    lease = await _acquire_session_lock(store, session_id)
+    try:
+        deleted = await asyncio.to_thread(store.delete_session, session_id, owner=principal)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Session not found")
+        await asyncio.to_thread(rag_app.chat_interface.rag_system.reset_thread, session_id)
+    finally:
+        if lease is not None:
+            await asyncio.to_thread(lease.release)
     return {"status": "ok"}
 
 
@@ -247,6 +268,7 @@ async def chat(
     )
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
+    lease = await _acquire_session_lock(chat_interface.session_memory, body.session_id)
 
     async def event_generator():
         async for sse_str in stream_chat(
@@ -256,6 +278,7 @@ async def chat(
             course_name=body.course_name,
             session_id=body.session_id,
             owner=principal,
+            lock_lease=lease,
         ):
             # Check for client disconnect
             if await request.is_disconnected():
@@ -287,5 +310,10 @@ async def clear_chat(
     )
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    await asyncio.to_thread(chat_interface.clear_session, body.session_id, owner=principal)
+    lease = await _acquire_session_lock(chat_interface.session_memory, body.session_id)
+    try:
+        await asyncio.to_thread(chat_interface.clear_session, body.session_id, owner=principal)
+    finally:
+        if lease is not None:
+            await asyncio.to_thread(lease.release)
     return {"status": "ok"}
