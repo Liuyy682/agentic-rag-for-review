@@ -220,9 +220,11 @@ Sessions:
 - `DELETE /api/sessions/{session_id}`
 - `GET /api/sessions/{session_id}/turns`
 
-Session and chat routes require a Bearer JWT. Local development may explicitly use
-`AUTH_MODE=dev` with `DEV_TENANT_ID` and `DEV_USER_ID`; production uses the default
-`AUTH_MODE=oidc` with issuer, audience, JWKS URL, and identity-claim settings.
+The application provides local registration, login, and logout. Authenticated browser
+sessions use a seven-day HttpOnly JWT cookie; logout revokes the token in Redis until it
+expires. All business `/api/*` routes require login, while document management and task
+queries require an administrator role. Configure `AUTH_JWT_SECRET`, `AUTH_TENANT_ID`, and,
+for the first administrator, both `INITIAL_ADMIN_EMAIL` and `INITIAL_ADMIN_PASSWORD`.
 The chat endpoint checks Redis before opening SSE and returns 503 when hot memory is unavailable; it does not fall back to process-local session state.
 LangGraph uses a shallow Redis checkpoint with the same sliding TTL; Redis 8 must provide
 RedisJSON and RediSearch. A Redis lock serializes chat and deletion for the same `session_id`,

@@ -30,6 +30,37 @@ body {
     padding: 20px;
 }
 
+.hidden { display: none !important; }
+
+.auth-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.auth-card {
+    width: min(100%, 380px);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px;
+}
+
+.auth-card h1 { margin: 0 0 8px; }
+.auth-card .btn { width: 100%; margin-top: 8px; }
+.auth-switch { background: transparent; }
+
+.user-menu {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
 /* ── Tab navigation ─────────────────────────────────────────────────── */
 
 .tab-nav {

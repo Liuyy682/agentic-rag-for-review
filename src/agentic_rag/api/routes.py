@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -14,7 +14,9 @@ from agentic_rag.api.deps import get_rag_app
 from agentic_rag.api.stream import stream_chat
 from agentic_rag.api.tasks import task_store
 from agentic_rag.chat.redis_memory import MemoryBackendUnavailable
-from agentic_rag.security.auth import Principal, get_principal
+from agentic_rag import config
+from agentic_rag.security.auth import Principal, get_admin, get_principal, issue_token, revoke_token
+from agentic_rag.security.users import InvalidCredentialsError, UserRepository
 
 router = APIRouter()
 
@@ -56,12 +58,83 @@ class CreateSessionRequest(BaseModel):
     course_name: str = ""
 
 
+class CredentialsRequest(BaseModel):
+    email: str
+    password: str
+
+
+def _user_payload(user: dict) -> dict:
+    return {
+        "id": str(user["user_id"]),
+        "email": str(user["email"]),
+        "tenant_id": str(user["tenant_id"]),
+        "role": str(user["role"]),
+    }
+
+
+def _set_auth_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=config.AUTH_COOKIE_NAME,
+        value=token,
+        max_age=config.AUTH_TOKEN_TTL_SECONDS,
+        httponly=True,
+        secure=config.AUTH_COOKIE_SECURE,
+        samesite="lax",
+        path="/api",
+    )
+
+
+# ── Authentication endpoints ───────────────────────────────────────────────
+
+@router.post("/auth/register", status_code=201)
+async def register(body: CredentialsRequest, response: Response):
+    users = UserRepository()
+    try:
+        user = await asyncio.to_thread(
+            users.create_user,
+            email=body.email,
+            password=body.password,
+            tenant_id=config.AUTH_TENANT_ID,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        if getattr(exc, "pgcode", None) == "23505":
+            raise HTTPException(status_code=409, detail="An account with this email already exists") from exc
+        raise
+    _set_auth_cookie(response, issue_token(user))
+    return {"user": _user_payload(user)}
+
+
+@router.post("/auth/login")
+async def login(body: CredentialsRequest, response: Response):
+    try:
+        user = await asyncio.to_thread(UserRepository().authenticate, email=body.email, password=body.password)
+    except (InvalidCredentialsError, ValueError) as exc:
+        raise HTTPException(status_code=401, detail="Invalid email or password") from exc
+    _set_auth_cookie(response, issue_token(user))
+    return {"user": _user_payload(user)}
+
+
+@router.post("/auth/logout")
+async def logout(response: Response, principal: Principal = Depends(get_principal)):
+    await asyncio.to_thread(revoke_token, principal)
+    response.delete_cookie(config.AUTH_COOKIE_NAME, path="/api", secure=config.AUTH_COOKIE_SECURE, httponly=True, samesite="lax")
+    return {"status": "ok"}
+
+
+@router.get("/auth/me")
+async def current_user(principal: Principal = Depends(get_principal)):
+    return {"user": {"id": principal.user_id, "email": principal.email, "tenant_id": principal.tenant_id, "role": principal.role}}
+
+
 # ── Document endpoints ───────────────────────────────────────────────────────
 
 @router.post("/documents/upload")
 async def upload_documents(
     files: list[UploadFile] = File(...),
     course_names: str = Form(default=""),
+    principal: Principal = Depends(get_admin),
 ):
     if not files:
         raise HTTPException(status_code=400, detail="No files provided")
@@ -121,7 +194,7 @@ async def upload_documents(
 
 
 @router.get("/documents/tasks/{task_id}")
-async def get_task(task_id: str):
+async def get_task(task_id: str, principal: Principal = Depends(get_admin)):
     task = task_store.get(task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -129,14 +202,14 @@ async def get_task(task_id: str):
 
 
 @router.get("/documents/files")
-async def list_files():
+async def list_files(principal: Principal = Depends(get_admin)):
     doc_manager = get_rag_app().document_manager
     files = await asyncio.to_thread(doc_manager.get_markdown_files)
     return {"files": files}
 
 
 @router.get("/documents/courses")
-async def list_courses():
+async def list_courses(principal: Principal = Depends(get_admin)):
     doc_manager = get_rag_app().document_manager
     choices = await asyncio.to_thread(doc_manager.get_course_choices)
     formatted = await asyncio.to_thread(doc_manager.get_course_list)
@@ -144,14 +217,14 @@ async def list_courses():
 
 
 @router.post("/documents/clear")
-async def clear_documents():
+async def clear_documents(principal: Principal = Depends(get_admin)):
     doc_manager = get_rag_app().document_manager
     await asyncio.to_thread(doc_manager.clear_all)
     return {"status": "ok"}
 
 
 @router.post("/documents/courses/rename")
-async def rename_course(body: RenameCourseRequest):
+async def rename_course(body: RenameCourseRequest, principal: Principal = Depends(get_admin)):
     if not body.current_name or not body.new_name:
         raise HTTPException(status_code=400, detail="Both current_name and new_name are required")
     doc_manager = get_rag_app().document_manager
@@ -169,7 +242,7 @@ async def rename_course(body: RenameCourseRequest):
 
 
 @router.post("/documents/sections/rename")
-async def rename_section(body: RenameSectionRequest):
+async def rename_section(body: RenameSectionRequest, principal: Principal = Depends(get_admin)):
     if not body.course_name or not body.current_section or not body.new_section:
         raise HTTPException(status_code=400, detail="All fields are required")
     doc_manager = get_rag_app().document_manager

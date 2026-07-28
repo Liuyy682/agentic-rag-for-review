@@ -65,6 +65,8 @@ var AppState = {
     chatAbortController: null,
     pendingFiles: [],
     sessions: [],           // List of sessions for the current course
+    user: null,
+    initialized: false,
 };
 
 // ── Toast ─────────────────────────────────────────────────────────────────
@@ -86,6 +88,36 @@ function showToast(message, type) {
 // ── API ───────────────────────────────────────────────────────────────────
 
 var API = {
+    async register(email, password) {
+        return this.authRequest('/api/auth/register', email, password);
+    },
+
+    async login(email, password) {
+        return this.authRequest('/api/auth/login', email, password);
+    },
+
+    async authRequest(url, email, password) {
+        var resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email, password: password }),
+        });
+        var payload = await resp.json().catch(function () { return {}; });
+        if (!resp.ok) throw new Error(payload.detail || 'Authentication failed');
+        return payload;
+    },
+
+    async me() {
+        var resp = await fetch('/api/auth/me');
+        if (!resp.ok) throw new Error('Not signed in');
+        return resp.json();
+    },
+
+    async logout() {
+        var resp = await fetch('/api/auth/logout', { method: 'POST' });
+        if (!resp.ok) throw new Error('Sign out failed');
+    },
+
     async uploadFiles(formData) {
         var resp = await fetch('/api/documents/upload', {
             method: 'POST',
@@ -235,6 +267,56 @@ var API = {
                 handlers.onError('Connection error: ' + err.message);
             }
         });
+    },
+};
+
+// ── Authentication UI ─────────────────────────────────────────────────────
+
+var AuthUI = {
+    registering: false,
+
+    init: function () {
+        document.getElementById('auth-form').addEventListener('submit', this.submit.bind(this));
+        document.getElementById('auth-switch').addEventListener('click', this.toggle.bind(this));
+        document.getElementById('logout-btn').addEventListener('click', this.logout.bind(this));
+    },
+
+    toggle: function () {
+        this.registering = !this.registering;
+        document.getElementById('auth-title').textContent = this.registering ? 'Create account' : 'Sign in';
+        document.getElementById('auth-help').textContent = this.registering ? 'Passwords must contain at least 12 characters.' : 'Use your account to access the knowledge base.';
+        document.getElementById('auth-submit').textContent = this.registering ? 'Create account' : 'Sign in';
+        document.getElementById('auth-switch').textContent = this.registering ? 'I already have an account' : 'Create an account';
+        document.getElementById('auth-password').autocomplete = this.registering ? 'new-password' : 'current-password';
+    },
+
+    submit: async function (event) {
+        event.preventDefault();
+        var email = document.getElementById('auth-email').value.trim();
+        var password = document.getElementById('auth-password').value;
+        var button = document.getElementById('auth-submit');
+        button.disabled = true;
+        try {
+            var result = this.registering ? await API.register(email, password) : await API.login(email, password);
+            startApplication(result.user);
+        } catch (e) {
+            showToast(e.message, 'error');
+        } finally {
+            button.disabled = false;
+        }
+    },
+
+    logout: async function () {
+        try {
+            await API.logout();
+        } catch (e) {
+            showToast(e.message, 'error');
+        }
+        AppState.user = null;
+        AppState.sessionId = null;
+        document.getElementById('app').classList.add('hidden');
+        document.getElementById('auth-screen').classList.remove('hidden');
+        document.getElementById('auth-password').value = '';
     },
 };
 
@@ -913,24 +995,58 @@ var ChatTab = {
 // ── Init ───────────────────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', function () {
-    var tabBtns = document.querySelectorAll('.tab-btn');
-    tabBtns.forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            var tabName = this.getAttribute('data-tab');
-            tabBtns.forEach(function (b) { b.classList.remove('active'); });
-            this.classList.add('active');
-            document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('active'); });
-            document.getElementById('tab-' + tabName).classList.add('active');
-            AppState.activeTab = tabName;
-        });
-    });
+    AuthUI.init();
 
-    DocumentsTab.init();
-    SessionManager.init();
-    ChatTab.init();
-
-    // Load courses, then sessions for the initially selected course
-    DocumentsTab.refreshAll().then(function () {
-        return SessionManager.loadSessions();
+    API.me().then(function (result) {
+        startApplication(result.user);
+    }).catch(function () {
+        document.getElementById('auth-screen').classList.remove('hidden');
     });
 });
+
+function startApplication(user) {
+    if (AppState.user) return;
+    AppState.user = user;
+    document.getElementById('current-user').textContent = user.email;
+    document.getElementById('auth-screen').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    var documentsTabButton = document.querySelector('.tab-btn[data-tab="documents"]');
+    var documentsTab = document.getElementById('tab-documents');
+    if (user.role !== 'admin') {
+        documentsTabButton.classList.add('hidden');
+        documentsTab.classList.add('hidden');
+        document.querySelectorAll('.tab-btn').forEach(function (button) { button.classList.remove('active'); });
+        document.querySelector('.tab-btn[data-tab="chat"]').classList.add('active');
+        document.querySelectorAll('.tab-panel').forEach(function (panel) { panel.classList.remove('active'); });
+        document.getElementById('tab-chat').classList.add('active');
+        AppState.activeTab = 'chat';
+    } else {
+        documentsTabButton.classList.remove('hidden');
+        documentsTab.classList.remove('hidden');
+    }
+
+    if (!AppState.initialized) {
+        var tabBtns = document.querySelectorAll('.tab-btn');
+        tabBtns.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var tabName = this.getAttribute('data-tab');
+                tabBtns.forEach(function (b) { b.classList.remove('active'); });
+                this.classList.add('active');
+                document.querySelectorAll('.tab-panel').forEach(function (p) { p.classList.remove('active'); });
+                document.getElementById('tab-' + tabName).classList.add('active');
+                AppState.activeTab = tabName;
+            });
+        });
+
+        DocumentsTab.init();
+        SessionManager.init();
+        ChatTab.init();
+        AppState.initialized = true;
+    }
+
+    if (user.role === 'admin') {
+        DocumentsTab.refreshAll().then(function () { return SessionManager.loadSessions(); });
+    } else {
+        SessionManager.loadSessions();
+    }
+}

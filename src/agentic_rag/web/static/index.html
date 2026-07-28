@@ -7,11 +7,29 @@
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div id="app">
+    <main id="auth-screen" class="auth-screen">
+        <form id="auth-form" class="auth-card" autocomplete="on">
+            <h1 id="auth-title">Sign in</h1>
+            <p id="auth-help" class="help-text">Use your account to access the knowledge base.</p>
+            <div class="form-group">
+                <label for="auth-email">Email</label>
+                <input id="auth-email" type="email" autocomplete="email" required>
+            </div>
+            <div class="form-group">
+                <label for="auth-password">Password</label>
+                <input id="auth-password" type="password" autocomplete="current-password" minlength="12" required>
+            </div>
+            <button id="auth-submit" class="btn btn-primary" type="submit">Sign in</button>
+            <button id="auth-switch" class="btn auth-switch" type="button">Create an account</button>
+        </form>
+    </main>
+
+    <div id="app" class="hidden">
         <!-- Tab bar -->
         <nav class="tab-nav">
             <button class="tab-btn active" data-tab="documents">Documents</button>
             <button class="tab-btn" data-tab="chat">Chat</button>
+            <span class="user-menu"><span id="current-user"></span><button id="logout-btn" class="btn btn-sm" type="button">Sign out</button></span>
         </nav>
 
         <!-- ===== Documents Tab ===== -->

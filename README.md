@@ -10,7 +10,7 @@
 - 默认检索链路为稠密向量检索 + PostgreSQL 全文检索 + RRF 融合 + cross-encoder 重排。
 - 根据问题类型和命中情况选择子块、邻近子块或父块作为回答上下文。
 - LangGraph 编排会话摘要、意图识别、查询改写、澄清、任务规划、检索、答案评估、降级回答和聚合。
-- 支持课程范围问答、课程/章节重命名，以及按 OIDC 租户和用户隔离的 PostgreSQL 会话归档与 Redis 热记忆。
+- 支持本地注册登录、课程范围问答、课程/章节重命名，以及按租户和用户隔离的 PostgreSQL 会话归档与 Redis 热记忆。
 - `evaluation` 提供 RAGBench、RAGAS、本地检索评测和分块消融脚本。
 
 ## 架构
@@ -63,7 +63,7 @@ Browser static UI
 - PostgreSQL 全文检索 + `jieba`
 - `sentence-transformers` cross-encoder 重排
 - MarkItDown、PyMuPDF 等文档转换工具
-- PostgreSQL 会话记忆 + OIDC JWT 身份隔离
+- PostgreSQL 会话记忆 + 本地 JWT 身份隔离
 - Redis 活跃会话缓存（默认 7 天滑动 TTL，未命中从 PostgreSQL 回源）
 - 可选 Langfuse 链路追踪
 - 可选 PaddleOCR 图片文字提取（IMAGE_ANALYSIS_ENGINE=paddleocr）
@@ -219,9 +219,12 @@ OCR/VLM 分析结果会以 `OCR:` / `RAG_SUMMARY:` / `KEY_TERMS:` 三字段格�
 
 当前前端使用这些内部 HTTP 接口；它们服务于本仓库 UI，不承诺作为稳定外部 API：
 
-会话与聊天接口需要 Bearer JWT。仅本地开发可在 `.env` 中显式设置
-`AUTH_MODE=dev`、`DEV_TENANT_ID` 和 `DEV_USER_ID`；生产环境使用默认的
-`AUTH_MODE=oidc` 并配置 issuer、audience、JWKS URL 及身份 Claim。
+应用提供本地注册、登录和登出。登录后服务端通过 HttpOnly Cookie 保存 7 天 JWT，
+登出会将令牌标识写入 Redis 撤销记录直到自然过期。所有 `/api/*` 业务接口均需登录；
+文档管理和任务查询接口还需要管理员角色。通过 `.env` 配置 `AUTH_JWT_SECRET`、
+`AUTH_TENANT_ID`；部署时可同时设置 `INITIAL_ADMIN_EMAIL` 与
+`INITIAL_ADMIN_PASSWORD` 幂等创建首位管理员。生产环境应设置 `APP_ENV=production`
+与 `AUTH_COOKIE_SECURE=true`。
 聊天入口会先检查 Redis 热记忆；Redis 暂不可用时返回 503，而不会退回到进程内会话状态。
 LangGraph Checkpoint 同样存入 Redis 的浅层 Checkpoint，并使用同一滑动 TTL；Redis 8
 必须提供 RedisJSON 与 RediSearch。相同 `session_id` 的聊天和删除操作通过 Redis 分布式锁

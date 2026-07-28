@@ -47,19 +47,14 @@ COURSE_STRUCTURE_PATH = os.path.join(INDEX_STATE_DIR, "course_structure.json")
 SESSION_MEMORY_PATH = os.path.join(_RUNTIME_DIR, "session_memory.sqlite3")
 
 # --- Authentication ---
-AUTH_MODE = os.environ.get("AUTH_MODE", "oidc").strip().lower()
-OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "").strip()
-OIDC_AUDIENCE = os.environ.get("OIDC_AUDIENCE", "").strip()
-OIDC_JWKS_URL = os.environ.get("OIDC_JWKS_URL", "").strip()
-OIDC_TENANT_CLAIM = os.environ.get("OIDC_TENANT_CLAIM", "tenant_id").strip()
-OIDC_USER_CLAIM = os.environ.get("OIDC_USER_CLAIM", "sub").strip()
-OIDC_ALGORITHMS = tuple(
-    item.strip()
-    for item in os.environ.get("OIDC_ALGORITHMS", "RS256").split(",")
-    if item.strip()
-)
-DEV_TENANT_ID = os.environ.get("DEV_TENANT_ID", "local-tenant").strip()
-DEV_USER_ID = os.environ.get("DEV_USER_ID", "local-user").strip()
+APP_ENV = os.environ.get("APP_ENV", "development").strip().lower()
+AUTH_JWT_SECRET = os.environ.get("AUTH_JWT_SECRET", "").strip()
+AUTH_TENANT_ID = os.environ.get("AUTH_TENANT_ID", "local-tenant").strip()
+AUTH_COOKIE_NAME = "agentic_rag_session"
+AUTH_COOKIE_SECURE = _env_bool("AUTH_COOKIE_SECURE", APP_ENV == "production")
+AUTH_TOKEN_TTL_SECONDS = _env_int("AUTH_TOKEN_TTL_SECONDS", 7 * 24 * 60 * 60)
+INITIAL_ADMIN_EMAIL = os.environ.get("INITIAL_ADMIN_EMAIL", "").strip()
+INITIAL_ADMIN_PASSWORD = os.environ.get("INITIAL_ADMIN_PASSWORD", "")
 
 # --- Redis hot conversation memory ---
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0").strip()

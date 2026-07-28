@@ -68,6 +68,20 @@ def ensure_schema() -> None:
                 cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
                 cur.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS app_users (
+                        user_id UUID PRIMARY KEY,
+                        tenant_id VARCHAR(255) NOT NULL,
+                        email VARCHAR(320) NOT NULL UNIQUE,
+                        password_hash TEXT NOT NULL,
+                        role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'user')),
+                        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                    )
+                    """
+                )
+                cur.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS rag_documents (
                         document_id UUID PRIMARY KEY,
                         original_file VARCHAR(500) NOT NULL,
