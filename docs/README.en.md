@@ -26,6 +26,17 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
+Install development or optional dependencies only when needed:
+
+```bash
+pip install -r requirements-dev.txt
+pip install -r requirements-ocr.txt
+pip install -r requirements-observability.txt
+pip install -r requirements-evaluation.txt
+```
+
+The core installation defaults to `IMAGE_ANALYSIS_ENGINE=none`; set it to `paddleocr` after installing `requirements-ocr.txt`.
+
 Start PostgreSQL with pgvector:
 
 ```bash
@@ -189,6 +200,10 @@ If the embedding dimension changes, rebuild the PostgreSQL volume and re-index d
 ### Optional Features
 
 Langfuse tracing:
+
+```bash
+pip install -r requirements-observability.txt
+```
 
 ```env
 LANGFUSE_ENABLED=false

@@ -10,6 +10,14 @@ from agentic_rag.chat.redis_memory import MemoryBackendUnavailable
 from agentic_rag.security.auth import Principal
 
 
+@pytest.fixture(autouse=True)
+def run_route_thread_calls_inline(monkeypatch):
+    async def call_inline(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(routes.asyncio, "to_thread", call_inline)
+
+
 class FakeSessionStore:
     def __init__(self):
         self.calls = []

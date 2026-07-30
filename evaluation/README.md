@@ -370,13 +370,10 @@ RAGAS 汇总会记录每个指标的有效样本数：
 
 ## Environment
 
-需要 `.venv` 中已安装：
+在核心依赖之上安装评测依赖：
 
 ```bash
-pyarrow
-ragas
-datasets
-openai
+pip install -r requirements-evaluation.txt
 ```
 
 默认使用 DeepSeek OpenAI-compatible API：

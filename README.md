@@ -79,13 +79,26 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-如果使用 PaddleOCR 图片分析（`IMAGE_ANALYSIS_ENGINE=paddleocr`），还需安装可选依赖：
+开发和运行测试时安装：
 
 ```bash
-pip install paddlepaddle>=3.0.0 paddleocr>=2.9.0
+pip install -r requirements-dev.txt
 ```
 
-PaddleOCR 首次运行时会自动下载模型文件（约 500MB），请确保网络畅通且磁盘空间充足。
+可选能力按需安装：
+
+```bash
+# PaddleOCR 图片分析（IMAGE_ANALYSIS_ENGINE=paddleocr）
+pip install -r requirements-ocr.txt
+
+# Langfuse 链路追踪
+pip install -r requirements-observability.txt
+
+# RAGAS、RAGBench 和其他离线评测
+pip install -r requirements-evaluation.txt
+```
+
+PaddleOCR 首次运行时会自动下载模型文件（约 500MB），请确保网络畅通且磁盘空间充足。核心安装默认使用 `IMAGE_ANALYSIS_ENGINE=none`，不会加载 PaddleOCR。
 
 启动 PostgreSQL + pgvector：
 
