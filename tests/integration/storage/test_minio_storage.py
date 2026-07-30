@@ -23,10 +23,12 @@ def test_minio_upload_download_and_delete_round_trip():
         target = Path(temp_dir) / "target.txt"
         source.write_text("minio smoke", encoding="utf-8")
 
-        storage.upload_file(object_key, source, "text/plain")
-        assert storage.object_exists(object_key)
-        storage.download_file(object_key, target)
-        assert target.read_text(encoding="utf-8") == "minio smoke"
+        try:
+            storage.upload_file(object_key, source, "text/plain")
+            assert storage.object_exists(object_key)
+            storage.download_file(object_key, target)
+            assert target.read_text(encoding="utf-8") == "minio smoke"
+        finally:
+            storage.delete_object(object_key)
 
-        storage.delete_object(object_key)
         assert not storage.object_exists(object_key)

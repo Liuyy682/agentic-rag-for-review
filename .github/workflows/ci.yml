@@ -25,6 +25,14 @@ jobs:
       AUTH_TENANT_ID: ci-tenant
       DATABASE_URL: postgresql://agentic_rag:dev_only@localhost:5432/agentic_rag
       RUN_PG_STORAGE_TESTS: "1"
+      REDIS_URL: redis://localhost:6379/0
+      RUN_REDIS_INTEGRATION_TESTS: "1"
+      MINIO_ENDPOINT: localhost:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: agentic-rag-ci
+      MINIO_SECURE: "false"
+      RUN_MINIO_TESTS: "1"
       HF_HUB_OFFLINE: "1"
       DENSE_LOCAL_FILES_ONLY: "true"
       RERANKER_LOCAL_FILES_ONLY: "true"
@@ -44,6 +52,15 @@ jobs:
           --health-cmd "pg_isready -U agentic_rag -d agentic_rag"
           --health-interval 5s
           --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:8
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
           --health-retries 10
 
     steps:
@@ -65,6 +82,39 @@ jobs:
           python -m pip install -r requirements-dev.txt
           python -m pip install -e .
 
+      - name: Start MinIO
+        run: |
+          docker run --detach --name minio \
+            --publish 9000:9000 \
+            --env MINIO_ROOT_USER="$MINIO_ACCESS_KEY" \
+            --env MINIO_ROOT_PASSWORD="$MINIO_SECRET_KEY" \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+          for attempt in {1..30}; do
+            if curl --fail --silent http://localhost:9000/minio/health/live >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs minio
+          exit 1
+
+      - name: Create MinIO test bucket
+        run: |
+          python - <<'PY'
+          import os
+          from minio import Minio
+
+          client = Minio(
+              os.environ["MINIO_ENDPOINT"],
+              access_key=os.environ["MINIO_ACCESS_KEY"],
+              secret_key=os.environ["MINIO_SECRET_KEY"],
+              secure=False,
+          )
+          bucket = os.environ["MINIO_BUCKET"]
+          if not client.bucket_exists(bucket):
+              client.make_bucket(bucket)
+          PY
+
       - name: Check installed dependencies
         run: python -m pip check
 
@@ -73,3 +123,30 @@ jobs:
 
       - name: Run tests
         run: python -m pytest -q
+
+  docker-build:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build application image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: agentic-rag:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test application imports
+        run: >-
+          docker run --rm --entrypoint python agentic-rag:ci
+          -c "import agentic_rag; from agentic_rag.server import app; assert app.title"

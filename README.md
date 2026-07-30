@@ -318,10 +318,40 @@ python -m evaluation.runners.retrieval_eval_runner \
 
 ## 验证
 
-文档改动后的最小代码验证：
+默认测试不会连接外部模型或付费 API：
 
 ```bash
+pip install -r requirements-dev.txt
+pip install -e .
+pip check
 python -m compileall -q src evaluation tests
+pytest -q
 ```
+
+GitHub Actions 的默认 CI 会在 `main` 的 push 和 PR 上启动临时 PostgreSQL +
+pgvector、Redis 8 和 MinIO 容器，执行完整测试。Redis 测试覆盖热记忆、分布式锁和
+LangGraph shallow checkpoint；MinIO 测试覆盖对象上传、下载、查询和删除。推送到
+`main` 后还会构建 Docker 镜像并执行应用导入检查。Docker 和服务容器只存在于当次
+Actions runner，不会访问生产环境。
+
+本地运行真实服务测试时，先启动对应服务并设置开关：
+
+```bash
+RUN_PG_STORAGE_TESTS=1 \
+RUN_REDIS_INTEGRATION_TESTS=1 \
+RUN_MINIO_TESTS=1 \
+pytest -q tests/integration/storage
+```
+
+真实 BGE 模型和 DeepSeek 连通性测试位于 GitHub Actions 的
+`Extended tests` 手动工作流，不随普通提交运行。模型测试会先下载
+`BAAI/bge-base-zh-v1.5` 和 `BAAI/bge-reranker-base`，随后关闭网络并用 CPU
+执行推理。LLM smoke test 最多发送一次低 token 请求；如需运行，在仓库
+`Settings -> Secrets and variables -> Actions` 中创建 `DEEPSEEK_API_KEY`。
+未配置密钥时工作流会明确跳过 LLM 测试，密钥不会写入仓库或测试日志。
+
+这些测试验证单节点组件兼容性、镜像可构建性和外部供应商基本连通性，不覆盖
+生产 Redis 高可用或故障转移、MinIO IAM/TLS、外部 API SLA，也不能替代使用
+真实标注数据进行的完整 RAG 质量评测。
 
 Markdown 只描述当前代码路径和配置，不包含未由代码或评测产物支撑的效果指标。
