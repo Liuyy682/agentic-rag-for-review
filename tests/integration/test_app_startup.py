@@ -4,7 +4,7 @@ from agentic_rag.server import app
 
 
 def test_application_serves_static_homepage_and_api_routes():
-    route_paths = {route.path for route in app.routes}
+    route_paths = set(app.openapi()["paths"])
     assert "/" in route_paths
     assert "/api/chat" in route_paths
 
